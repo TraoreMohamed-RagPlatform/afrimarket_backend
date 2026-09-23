@@ -10,6 +10,7 @@ const { generalLimiter, loginLimiter, registerLimiter } = require('./middleware/
 
 // Import routes
 const authRoutes = require('./routes/auth');
+const listingRoutes = require('./routes/listing');
 
 const prisma = new PrismaClient();
 const app = express();
@@ -43,6 +44,9 @@ app.use(generalLimiter);
 
 // Routes d'authentification avec rate limiting spécifique
 app.use('/api/auth', authRoutes);
+
+// Routes des listings
+app.use('/api/listings', listingRoutes);
 
 // ========================================
 // Health check

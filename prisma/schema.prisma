@@ -1,0 +1,182 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  fullName  String
+  phone     String?
+  avatar    String?
+  bio       String?
+  location  String?
+  role      String   @default("USER")
+  status    String   @default("ACTIVE")
+  verifiedEmail Boolean  @default(false)
+  verifiedPhone Boolean  @default(false)
+  avgRating     Float?   @default(0)
+  totalRatings  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listings      Listing[]
+  messages      Message[]
+  ratings       Rating[]
+  favorites     Favorite[]
+  notifications Notification[]
+  verifications Verification[]
+
+  @@index([email])
+  @@index([username])
+  @@index([status])
+}
+
+model Listing {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  price       Float
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  condition   String
+  isSold      Boolean  @default(false)
+  searchKeywords String[]  @default([])
+  status      String   @default("ACTIVE")
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  images        Image[]
+  messages      Message[]
+  ratings       Rating[]
+  favorites     Favorite[]
+  notifications Notification[]
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Image {
+  id        String   @id @default(cuid())
+  url       String
+  publicId  String?
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([listingId])
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String?
+  listings    Listing[]
+  createdAt   DateTime @default(now())
+
+  @@index([slug])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([senderId])
+  @@index([listingId])
+  @@index([createdAt])
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  score     Int
+  comment   String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId])
+  @@index([userId])
+  @@index([listingId])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId])
+  @@index([userId])
+  @@index([listingId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      NotificationType
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+}
+
+model Verification {
+  id        String   @id @default(cuid())
+  type      VerificationType
+  value     String
+  code      String
+  verified  Boolean  @default(false)
+  expiresAt DateTime
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@index([verified])
+}
+
+// Énumérations
+enum NotificationType {
+  MESSAGE
+  LISTING_INTEREST
+  RATING_RECEIVED
+  LISTING_SOLD
+  LISTING_UPDATED
+  SYSTEM
+}
+
+enum VerificationType {
+  EMAIL
+  PHONE
+}

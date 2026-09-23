@@ -1,0 +1,32 @@
+### Test Register
+POST http://localhost:3000/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "test@afrimarket.com",
+  "username": "testuser",
+  "password": "password123",
+  "fullName": "Test User"
+}
+
+### Test Login
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
+### Get Profile - Requires token
+GET http://localhost:3000/api/auth/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbXVkNXhob20wMDAwbHZteGRha3l0ZHk2IiwiaWF0IjoxNzkwMTExMzA4LCJleHAiOjE3OTA3MTYxMDh9.uLPAMVbX6D58PNmPnuO-JgBy6yMAP6XGrFtHSGcmIF0
+
+{
+  "email": "test@afrimarket.com",
+  "password": "password123"
+}
+### Register - Create new user
+POST http://localhost:3000/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "user2@afrimarket.com",
+  "username": "user2",
+  "password": "password123",
+  "fullName": "User Two"
+}

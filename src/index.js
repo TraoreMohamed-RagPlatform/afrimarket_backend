@@ -48,6 +48,9 @@ app.use('/api/auth', authRoutes);
 // Routes des listings
 app.use('/api/listings', listingRoutes);
 
+// Routes des utilisateurs
+const userRoutes = require('./routes/user');
+app.use('/api/users', userRoutes);
 // ========================================
 // Health check
 // ========================================

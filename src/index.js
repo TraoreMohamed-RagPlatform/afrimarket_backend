@@ -52,6 +52,9 @@ app.use('/api/listings', listingRoutes);
 const userRoutes = require('./routes/user');
 app.use('/api/users', userRoutes);
 // ========================================
+// Routes des favoris
+const favoriteRoutes = require('./routes/favorite');
+app.use('/api/favorites', favoriteRoutes);
 // Health check
 // ========================================
 

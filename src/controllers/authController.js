@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const { generateToken, verifyToken } = require('../utils/tokenUtils');
+const { recordFailedLogin, resetLoginAttempts } = require('../middleware/loginLockoutMiddleware');
 
 const prisma = new PrismaClient();
 
@@ -53,18 +54,24 @@ const login = async (req, res) => {
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
+      recordFailedLogin(email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     if (user.status === 'SUSPENDED' || user.status === 'DELETED') {
+      recordFailedLogin(email);
       return res.status(403).json({ error: 'Account is not active' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
+      recordFailedLogin(email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    // Réinitialiser les tentatives échouées après une connexion réussie
+    resetLoginAttempts(email);
 
     const accessToken = generateToken(user.id);
     const refreshToken = generateToken(user.id, '30d');

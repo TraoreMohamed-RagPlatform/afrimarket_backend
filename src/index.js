@@ -2,7 +2,11 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
+const helmet = require('helmet');
 const { PrismaClient } = require('@prisma/client');
+
+// Import middlewares
+const { generalLimiter, loginLimiter, registerLimiter } = require('./middleware/rateLimitMiddleware');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -10,15 +14,40 @@ const authRoutes = require('./routes/auth');
 const prisma = new PrismaClient();
 const app = express();
 
-// Middleware
-app.use(compression());
+// ========================================
+// Security Middleware
+// ========================================
+
+// Helmet - Ajoute les en-têtes HTTP de sécurité
+app.use(helmet());
+
+// CORS
 app.use(cors());
+
+// Compression
+app.use(compression());
+
+// Body parser
 app.use(express.json());
 
+// ========================================
+// Rate Limiting
+// ========================================
+
+// Rate limiting général
+app.use(generalLimiter);
+
+// ========================================
 // Routes
+// ========================================
+
+// Routes d'authentification avec rate limiting spécifique
 app.use('/api/auth', authRoutes);
 
+// ========================================
 // Health check
+// ========================================
+
 app.get('/api/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -36,25 +65,39 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// 404 handler
+// ========================================
+// 404 Handler
+// ========================================
+
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Error handler
+// ========================================
+// Error Handler
+// ========================================
+
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+// ========================================
+// Server Startup
+// ========================================
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || 'localhost';
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`✅ Backend AfriMarket démarré sur http://${HOST}:${PORT}`);
+  console.log(`🔒 Sécurité : Helmet + Rate Limiting activés`);
 });
 
-// Graceful shutdown
+// ========================================
+// Graceful Shutdown
+// ========================================
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received. Shutting down gracefully...');
   server.close(async () => {

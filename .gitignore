@@ -1,3 +1,51 @@
+# Node.js
+node_modules/
+npm-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build Output
+dist/
+build/
+out/
+coverage/
+
+# Prisma
+prisma/.env
+prisma/dev.db
+prisma/dev.db-journal
+
+# Temporary Files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Testing
+.nyc_output/
+lcov-report/
+
+# System Files
+.AppleDouble
+Thumbs.db
+desktop.ini
 # Environment variables
 .env
 .env.local

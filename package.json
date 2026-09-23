@@ -1,16 +1,23 @@
 {
   "name": "afrimarket_backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "AfriMarket Backend - Professional Node.js/Express API",
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon src/index.js",
+    "test": "jest --coverage --watchAll=false",
+    "lint": "eslint src/ --fix",
+    "build": "echo 'Build completed'"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "marketplace",
+    "afrimarket",
+    "nodejs",
+    "express"
+  ],
+  "author": "AfriMarket Team",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@prisma/client": "^5.15.0",
@@ -22,5 +29,11 @@
     "express-validator": "^7.3.2",
     "jsonwebtoken": "^9.0.3",
     "prisma": "^5.15.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.11",
+    "eslint": "^8.54.0",
+    "nodemon": "^3.0.2"
   }
 }

@@ -1,63 +1,59 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const compression = require('compression');
 const helmet = require('helmet');
 const { PrismaClient } = require('@prisma/client');
 
 // Import middlewares
-const { generalLimiter, loginLimiter, registerLimiter } = require('./middleware/rateLimitMiddleware');
+const { loginLimiter, registerLimiter } = require('./middleware/rateLimitMiddleware');
+
+// Import Socket.io
+const { initializeSocket } = require('./socket');
 
 // Import routes
 const authRoutes = require('./routes/auth');
 const listingRoutes = require('./routes/listing');
+const userRoutes = require('./routes/user');
+const favoriteRoutes = require('./routes/favorite');
+const messageRoutes = require('./routes/message');
+const notificationRoutes = require('./routes/notification');
 
 const prisma = new PrismaClient();
+
+// ========================================
+// EXPRESS APP & HTTP SERVER
+// ========================================
+
 const app = express();
+const server = http.createServer(app);
+
+// Initialize Socket.io
+const io = initializeSocket(server);
+app.set('io', io); // Rendre io accessible dans les routes
 
 // ========================================
 // Security Middleware
 // ========================================
 
-// Helmet - Ajoute les en-têtes HTTP de sécurité
 app.use(helmet());
-
-// CORS
 app.use(cors());
-
-// Compression
 app.use(compression());
-
-// Body parser
 app.use(express.json());
-
-// ========================================
-// Rate Limiting
-// ========================================
-
-// Rate limiting général
-app.use(generalLimiter);
 
 // ========================================
 // Routes
 // ========================================
 
-// Routes d'authentification avec rate limiting spécifique
 app.use('/api/auth', authRoutes);
-
-// Routes des listings
 app.use('/api/listings', listingRoutes);
-
-// Routes des utilisateurs
-const userRoutes = require('./routes/user');
 app.use('/api/users', userRoutes);
-// ========================================
-// Routes des favoris
-const favoriteRoutes = require('./routes/favorite');
 app.use('/api/favorites', favoriteRoutes);
-// ========================================
-const messageRoutes = require('./routes/message');
 app.use('/api/messages', messageRoutes);
+app.use('/api/notifications', notificationRoutes);
+
+// ========================================
 // Health check
 // ========================================
 
@@ -68,6 +64,7 @@ app.get('/api/health', async (req, res) => {
       status: 'ok',
       timestamp: new Date().toISOString(),
       database: 'connected',
+      websocket: 'active',
     });
   } catch (error) {
     res.status(500).json({
@@ -102,9 +99,10 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || 'localhost';
 
-const server = app.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, () => {
   console.log(`✅ Backend AfriMarket démarré sur http://${HOST}:${PORT}`);
   console.log(`🔒 Sécurité : Helmet + Rate Limiting activés`);
+  console.log(`🔌 WebSocket Socket.io ACTIVÉ!`);
 });
 
 // ========================================

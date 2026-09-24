@@ -55,6 +55,9 @@ app.use('/api/users', userRoutes);
 // Routes des favoris
 const favoriteRoutes = require('./routes/favorite');
 app.use('/api/favorites', favoriteRoutes);
+// ========================================
+const messageRoutes = require('./routes/message');
+app.use('/api/messages', messageRoutes);
 // Health check
 // ========================================
 

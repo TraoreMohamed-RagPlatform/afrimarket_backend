@@ -6,14 +6,15 @@ const generateToken = (userId, expiresIn = '7d') => {
 
 const verifyToken = (token) => {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET);
+    console.log('🔍 Vérification du token...');
+    console.log('JWT_SECRET:', process.env.JWT_SECRET);
+    console.log('Token reçu:', token.substring(0, 50) + '...');
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('✅ Token vérifié:', decoded);
+    return decoded;
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return null;
-    }
-    if (error.name === 'JsonWebTokenError') {
-      return null;
-    }
+    console.log('❌ Erreur vérification:', error.message);
     return null;
   }
 };

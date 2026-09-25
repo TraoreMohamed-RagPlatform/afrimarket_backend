@@ -19,6 +19,7 @@ const userRoutes = require('./routes/user');
 const favoriteRoutes = require('./routes/favorite');
 const messageRoutes = require('./routes/message');
 const notificationRoutes = require('./routes/notification');
+const ratingRoutes = require('./routes/rating');
 
 const prisma = new PrismaClient();
 
@@ -52,6 +53,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/ratings', ratingRoutes);
 
 // ========================================
 // Health check

@@ -1,4 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
+const { sendMessageReceivedEmail } = require('../utils/emailTemplates');
+
 const prisma = new PrismaClient();
 
 const getOrCreateConversation = async (req, res) => {
@@ -70,6 +72,7 @@ const sendMessage = async (req, res) => {
       // Vérifier que la conversation existe et que l'utilisateur en est participant
       const conversation = await prisma.conversation.findUnique({
         where: { id: conversationId },
+        include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } }
       });
 
       if (!conversation) {
@@ -94,10 +97,35 @@ const sendMessage = async (req, res) => {
         where: { id: conversationId },
         data: { lastMessageAt: new Date() },
       });
+
+      // ✅ ENVOYER EMAIL AU DESTINATAIRE
+      try {
+        // Trouver l'ID du destinataire (l'autre participant dans la conversation)
+        const recipientId = conversation.participants.find(id => id !== userId);
+        
+        // Récupérer les infos du destinataire et de l'expéditeur
+        const [recipient, sender] = await Promise.all([
+          prisma.user.findUnique({ where: { id: recipientId } }),
+          prisma.user.findUnique({ where: { id: userId } })
+        ]);
+
+        if (recipient && sender) {
+          await sendMessageReceivedEmail(
+            recipient,
+            sender,
+            { content: message.content },
+            'Conversation privée'
+          );
+        }
+      } catch (emailError) {
+        console.warn('⚠️ Email non envoyé, mais message créé:', emailError.message);
+        // On continue même si l'email échoue
+      }
     } else if (listingId) {
       // Vérifier que l'annonce existe
       const listing = await prisma.listing.findUnique({
         where: { id: listingId },
+        include: { user: true }
       });
 
       if (!listing) {
@@ -112,6 +140,23 @@ const sendMessage = async (req, res) => {
           listingId,
         },
       });
+
+      // ✅ ENVOYER EMAIL AU PROPRIÉTAIRE DE L'ANNONCE
+      try {
+        if (listing.user && listing.userId !== userId) {
+          const sender = await prisma.user.findUnique({ where: { id: userId } });
+          
+          await sendMessageReceivedEmail(
+            listing.user,
+            sender,
+            { content: message.content },
+            listing.title
+          );
+        }
+      } catch (emailError) {
+        console.warn('⚠️ Email non envoyé, mais message créé:', emailError.message);
+        // On continue même si l'email échoue
+      }
     }
 
     res.json(message);

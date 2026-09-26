@@ -6,7 +6,8 @@ const {
   getListings,
   getListing,
   updateListing,
-  deleteListing
+  deleteListing,
+  markAsSold
 } = require('../controllers/listingController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { body, validationResult } = require('express-validator');
@@ -125,6 +126,14 @@ router.delete(
   authMiddleware, // Authentification requise
   listingGeneralLimiter, // Rate limiting
   deleteListing
+);
+
+// 🎉 PUT /api/listings/:id/mark-sold - Marquer une annonce comme vendue
+router.put(
+  '/:id/mark-sold',
+  authMiddleware, // Authentification requise
+  listingGeneralLimiter, // Rate limiting
+  markAsSold
 );
 
 module.exports = router;

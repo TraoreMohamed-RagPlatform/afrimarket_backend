@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { validationResult } = require('express-validator');
+const { sendRatingReceivedEmail } = require('../utils/emailTemplates');
 
 const prisma = new PrismaClient();
 
@@ -58,6 +59,18 @@ const createRating = async (req, res) => {
         listing: { select: { id: true, title: true } }
       }
     });
+
+    // ✅ ENVOYER EMAIL AU VENDEUR
+    try {
+      await sendRatingReceivedEmail(
+        listing.user,
+        { ...rating, listing },
+        req.user.username
+      );
+    } catch (emailError) {
+      console.warn('⚠️ Email non envoyé, mais notation créée:', emailError.message);
+      // On continue même si l'email échoue
+    }
 
     return res.status(201).json({
       message: 'Rating créé avec succès',

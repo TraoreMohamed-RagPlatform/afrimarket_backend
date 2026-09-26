@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nouvelle évaluation</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px; }
+        .content { padding: 20px; background: #f9f9f9; margin: 20px 0; border-left: 4px solid #4CAF50; }
+        .rating { font-size: 24px; color: #FFC107; margin: 10px 0; }
+        .button { display: inline-block; padding: 10px 20px; background: #4CAF50; color: white; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+        .footer { text-align: center; font-size: 12px; color: #999; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⭐ Nouvelle évaluation!</h1>
+        </div>
+        
+        <div class="content">
+            <p>Bonjour {{userName}},</p>
+            
+            <p>Vous avez reçu une nouvelle évaluation pour votre annonce <strong>{{listingTitle}}</strong></p>
+            
+            <div class="rating">
+                {{stars}} ({{score}}/5)
+            </div>
+            
+            <p><strong>Commentaire:</strong></p>
+            <p>{{comment}}</p>
+            
+            <p><strong>Évalué par:</strong> {{raterName}}</p>
+            
+            <a href="{{viewLink}}" class="button">Voir l'évaluation</a>
+        </div>
+        
+        <div class="footer">
+            <p>© AfriMarket 2026 | Marketplace de confiance</p>
+        </div>
+    </div>
+</body>
+</html>

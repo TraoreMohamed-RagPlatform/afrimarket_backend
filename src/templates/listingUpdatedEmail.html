@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mise à jour d'annonce</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #9C27B0; color: white; padding: 20px; text-align: center; border-radius: 5px; }
+        .content { padding: 20px; background: #f9f9f9; margin: 20px 0; border-left: 4px solid #9C27B0; }
+        .button { display: inline-block; padding: 10px 20px; background: #9C27B0; color: white; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+        .footer { text-align: center; font-size: 12px; color: #999; margin-top: 20px; border-top: 1px solid #ddd; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📝 Votre annonce a été mise à jour</h1>
+        </div>
+        
+        <div class="content">
+            <p>Bonjour {{userName}},</p>
+            
+            <p>Votre annonce <strong>{{listingTitle}}</strong> a été mise à jour avec succès.</p>
+            
+            <p><strong>Mises à jour effectuées:</strong></p>
+            <ul>
+                {{updatesList}}
+            </ul>
+            
+            <a href="{{listingLink}}" class="button">Voir l'annonce</a>
+        </div>
+        
+        <div class="footer">
+            <p>© AfriMarket 2026 | Marketplace de confiance</p>
+        </div>
+    </div>
+</body>
+</html>

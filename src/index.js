@@ -31,6 +31,7 @@ const fcmRoutes = require('./routes/fcm');
 const searchRoutes = require('./routes/search');
 const verificationRoutes = require('./routes/verification');
 const adminReportRoutes = require('./routes/adminReports');
+const identityVerificationRoutes = require('./routes/identityVerificationRoutes');
 const prisma = new PrismaClient();
 
 // ========================================
@@ -59,7 +60,7 @@ app.use(express.json());
 // ========================================
 // Routes
 // ========================================
-// 
+//
 // Et ajoute cette ligne dans la section app.use() :
 app.use('/api/support', supportRoutes);
 
@@ -74,6 +75,7 @@ app.use('/api/fcm', fcmRoutes);
 app.use('/api', searchRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/admin/reports', adminReportRoutes);
+app.use('/api/identity-verification', identityVerificationRoutes);
 
 // ========================================
 // Health check

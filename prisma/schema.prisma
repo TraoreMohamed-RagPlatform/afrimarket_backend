@@ -27,6 +27,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Identité vérifiée (KYC)
+  identityVerification  IdentityVerification?
+  isIdentityVerified    Boolean  @default(false)
+  verifiedAt            DateTime?
+  trustScore            Int      @default(50)
+
   listings        Listing[]
   messages        Message[]
   ratings         Rating[]
@@ -40,9 +46,11 @@ model User {
   adminReports    AdminReport[]
   passwordResets  PasswordReset[]
 
+
   @@index([email])
   @@index([username])
   @@index([status])
+  @@index([isIdentityVerified])
 }
 
 model Listing {
@@ -289,6 +297,55 @@ model AdminReport {
   @@index([type])
   @@index([generatedBy])
   @@index([createdAt])
+}
+
+model IdentityVerification {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Informations du document
+  documentType          String   // "NATIONAL_ID" | "PASSPORT" | "DRIVER_LICENSE"
+  documentNumber        String   // Numéro du document
+  documentCountry       String   // Pays d'émission (code ISO: MA, SN, etc)
+  documentIssueDate     DateTime?
+  documentExpiryDate    DateTime?
+
+  // Images du document
+  documentFrontImage    String   // chemin du fichier
+  documentBackImage     String   // chemin du fichier
+
+  // Biométrie / Selfie
+  selfiePhoto           String   // chemin du fichier
+  faceSimilarityScore   Float?   // Score de similarité visage (0-100)
+
+  // Métadonnées de vérification
+  status                String   @default("PENDING") // "PENDING" | "VERIFIED" | "REJECTED" | "EXPIRED"
+  verificationMethod    String?  // "MANUAL" | "AUTOMATED"
+
+  // Raison du rejet
+  rejectionReason       String?  // "DOCUMENT_UNCLEAR" | "DOCUMENT_EXPIRED" | "FACE_MISMATCH" | "DOCUMENT_INVALID" | "OTHER"
+  rejectionDetails      String?  // Détails additionnels
+
+  // Admin verification
+  verifiedBy            String?  // userId de l'admin qui a vérifié
+  verificationNotes     String?  // Notes de l'admin
+  verifiedAt            DateTime? // Quand c'est vérifié
+
+  // Audit trail
+  lastReviewedAt        DateTime?
+  reviewCount           Int      @default(0)
+
+  // Timestamps
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  expiresAt             DateTime? // Vérification expire après X jours
+
+  @@index([userId])
+  @@index([status])
+  @@index([documentType])
+  @@index([createdAt])
+  @@index([expiresAt])
 }
 
 enum NotificationType {

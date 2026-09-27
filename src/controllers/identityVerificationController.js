@@ -4,6 +4,11 @@ const { v4: uuidv4 } = require('uuid');
 const sharp = require('sharp');
 const { PrismaClient } = require('@prisma/client');
 
+// ===== IMPORTER LES SERVICES =====
+const identityVerificationService = require('../services/identityVerificationService');
+const faceMatchingService = require('../services/faceMatchingService');
+const notificationService = require('../services/notificationService');
+
 const prisma = new PrismaClient();
 
 // =============================================
@@ -82,8 +87,8 @@ const validateImageFile = async (file) => {
 // =============================================
 exports.uploadIdentityDocuments = async (req, res) => {
   try {
-    const userId = req.userId; // À partir du JWT token
-    const { documentType } = req.body; // NATIONAL_ID, PASSPORT, DRIVER_LICENSE
+    const userId = req.userId;
+    const { documentType } = req.body;
 
     // Vérifier que les deux fichiers sont présents
     if (!req.files || !req.files.frontImage || !req.files.backImage) {
@@ -106,6 +111,25 @@ exports.uploadIdentityDocuments = async (req, res) => {
       return res.status(400).json({ error: backValidation.error });
     }
 
+    // ===== UTILISER LE SERVICE POUR VALIDER LA QUALITÉ =====
+    const frontQuality = await identityVerificationService.validateDocumentQuality(frontFile.path);
+    if (!frontQuality.valid) {
+      return res.status(400).json({
+        error: 'Qualité insuffisante du document (face avant)',
+        details: frontQuality.issues,
+        score: frontQuality.score
+      });
+    }
+
+    const backQuality = await identityVerificationService.validateDocumentQuality(backFile.path);
+    if (!backQuality.valid) {
+      return res.status(400).json({
+        error: 'Qualité insuffisante du document (face arrière)',
+        details: backQuality.issues,
+        score: backQuality.score
+      });
+    }
+
     // Créer les dossiers utilisateur
     const userDocDir = path.join(UPLOAD_DIR, userId, 'documents');
     await fs.mkdir(userDocDir, { recursive: true });
@@ -117,20 +141,15 @@ exports.uploadIdentityDocuments = async (req, res) => {
     const frontPath = path.join(userDocDir, frontFilename);
     const backPath = path.join(userDocDir, backFilename);
 
-    // Copier et convertir en PNG avec sharp (pour standardiser)
-    await sharp(frontFile.path)
-      .png()
-      .toFile(frontPath);
+    // Copier et convertir en PNG avec sharp
+    await sharp(frontFile.path).png().toFile(frontPath);
+    await sharp(backFile.path).png().toFile(backPath);
 
-    await sharp(backFile.path)
-      .png()
-      .toFile(backPath);
-
-    // Supprimer les fichiers temporaires de multer
+    // Supprimer les fichiers temporaires
     await fs.unlink(frontFile.path);
     await fs.unlink(backFile.path);
 
-    // Retourner les chemins relatifs pour la base de données
+    // Retourner les chemins relatifs
     const frontRelativePath = path.relative(path.join(__dirname, '../../'), frontPath);
     const backRelativePath = path.relative(path.join(__dirname, '../../'), backPath);
 
@@ -139,7 +158,11 @@ exports.uploadIdentityDocuments = async (req, res) => {
       data: {
         frontImage: frontRelativePath,
         backImage: backRelativePath,
-        documentType
+        documentType,
+        qualityScores: {
+          front: frontQuality.score,
+          back: backQuality.score
+        }
       }
     });
 
@@ -156,7 +179,7 @@ exports.uploadIdentityDocuments = async (req, res) => {
 // =============================================
 exports.uploadSelfie = async (req, res) => {
   try {
-    const userId = req.userId; // À partir du JWT token
+    const userId = req.userId;
 
     // Vérifier que le fichier est présent
     if (!req.file) {
@@ -171,18 +194,34 @@ exports.uploadSelfie = async (req, res) => {
       return res.status(400).json({ error: validation.error });
     }
 
+    // ===== UTILISER LE SERVICE POUR VALIDER LA QUALITÉ =====
+    const quality = await identityVerificationService.validateDocumentQuality(req.file.path);
+    if (!quality.valid) {
+      return res.status(400).json({
+        error: 'Qualité insuffisante du selfie',
+        details: quality.issues,
+        score: quality.score
+      });
+    }
+
+    // ===== UTILISER LE SERVICE POUR DÉTECTER LE VISAGE ET LIVENESS =====
+    const faceDetection = await faceMatchingService.detectFace(req.file.path);
+    if (!faceDetection.detected) {
+      return res.status(400).json({
+        error: 'Aucun visage détecté dans le selfie. Veuillez réessayer.'
+      });
+    }
+
     // Créer le dossier utilisateur
     const userSelfieDir = path.join(UPLOAD_DIR, userId, 'selfie');
     await fs.mkdir(userSelfieDir, { recursive: true });
 
-    // Renommer et sauvegarder le fichier avec UUID
+    // Renommer et sauvegarder le fichier
     const filename = `${uuidv4()}.png`;
     const selfieFilePath = path.join(userSelfieDir, filename);
 
-    // Convertir en PNG avec sharp
-    await sharp(req.file.path)
-      .png()
-      .toFile(selfieFilePath);
+    // Convertir en PNG
+    await sharp(req.file.path).png().toFile(selfieFilePath);
 
     // Supprimer le fichier temporaire
     await fs.unlink(req.file.path);
@@ -193,7 +232,10 @@ exports.uploadSelfie = async (req, res) => {
     return res.status(200).json({
       message: 'Selfie uploadé avec succès',
       data: {
-        selfiePhoto: relativePath
+        selfiePhoto: relativePath,
+        qualityScore: quality.score,
+        faceDetected: faceDetection.detected,
+        faceCount: faceDetection.faceCount
       }
     });
 
@@ -212,12 +254,12 @@ exports.submitIdentityVerification = async (req, res) => {
   try {
     const userId = req.userId;
     const {
-      documentType,        // NATIONAL_ID, PASSPORT, DRIVER_LICENSE
-      documentNumber,      // Numéro du document
-      documentCountry,     // Pays d'émission (code ISO: MA, SN, etc)
-      frontImage,          // Chemin du fichier front
-      backImage,           // Chemin du fichier back
-      selfiePhoto          // Chemin du fichier selfie
+      documentType,
+      documentNumber,
+      documentCountry,
+      frontImage,
+      backImage,
+      selfiePhoto
     } = req.body;
 
     // =====================
@@ -225,11 +267,11 @@ exports.submitIdentityVerification = async (req, res) => {
     // =====================
     if (!documentType || !documentNumber || !documentCountry || !frontImage || !backImage || !selfiePhoto) {
       return res.status(400).json({
-        error: 'Tous les champs sont requis: documentType, documentNumber, documentCountry, frontImage, backImage, selfiePhoto'
+        error: 'Tous les champs sont requis'
       });
     }
 
-    // Vérifier que documentType est valide
+    // Vérifier documentType
     const validDocTypes = ['NATIONAL_ID', 'PASSPORT', 'DRIVER_LICENSE'];
     if (!validDocTypes.includes(documentType)) {
       return res.status(400).json({
@@ -261,22 +303,135 @@ exports.submitIdentityVerification = async (req, res) => {
         documentBackImage: backImage,
         selfiePhoto,
         status: 'PENDING',
-        verificationMethod: 'MANUAL', // Par défaut vérification manuelle
+        verificationMethod: 'MANUAL',
         createdAt: new Date()
       }
     });
 
-    // TODO: À implémenter - Face matching automatique avec faceSimilarityScore
-    // TODO: À implémenter - Envoyer notification à l'admin
+    // =====================
+    // EFFECTUER LA VÉRIFICATION FACIALE AUTOMATIQUE
+    // =====================
+    const faceVerification = await faceMatchingService.performFullFaceVerification(
+      verificationRecord.id,
+      selfiePhoto,
+      frontImage
+    );
 
-    return res.status(201).json({
-      message: 'Demande de vérification d\'identité soumise avec succès',
-      data: {
-        verificationId: verificationRecord.id,
-        status: verificationRecord.status,
-        createdAt: verificationRecord.createdAt
+    // =====================
+    // LOGIQUE HYBRIDE - Score-based routing
+    // =====================
+
+    if (faceVerification.overallScore >= 90) {
+      // ✅ SCORE EXCELLENT → VERIFIED AUTOMATIQUEMENT
+      await identityVerificationService.updateVerificationStatus(
+        verificationRecord.id,
+        'VERIFIED',
+        {
+          faceSimilarityScore: faceVerification.overallScore,
+          verificationMethod: 'AUTOMATED_HIGH_CONFIDENCE'
+        }
+      );
+
+      // Notifier l'utilisateur
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, phone: true, name: true }
+      });
+
+      if (user) {
+        await notificationService.notifyVerificationCompleted(
+          verificationRecord.id,
+          'VERIFIED',
+          user.email,
+          { userId, name: user.name }
+        );
       }
-    });
+
+      return res.status(201).json({
+        message: 'Vérification automatique approuvée!',
+        data: {
+          verificationId: verificationRecord.id,
+          status: 'VERIFIED',
+          faceScore: faceVerification.overallScore,
+          autoApproved: true,
+          createdAt: verificationRecord.createdAt
+        }
+      });
+
+    } else if (faceVerification.overallScore >= 60) {
+      // ⏳ SCORE MOYEN → EN ATTENTE DE VÉRIFICATION ADMIN
+      await identityVerificationService.updateVerificationStatus(
+        verificationRecord.id,
+        'PENDING',
+        {
+          faceSimilarityScore: faceVerification.overallScore,
+          verificationMethod: 'MANUAL_REVIEW_NEEDED',
+          verificationNotes: `Score automatique: ${faceVerification.overallScore}%. Vérification manuelle requise.`
+        }
+      );
+
+      // Notifier l'admin
+      await notificationService.sendAdminEmail('ADMIN_NEW_REQUEST', {
+        verificationId: verificationRecord.id,
+        userId: userId,
+        documentType: documentType,
+        faceSimilarityScore: faceVerification.overallScore,
+        priority: 'MEDIUM'
+      });
+
+      return res.status(201).json({
+        message: 'Demande en attente de vérification manuelle',
+        data: {
+          verificationId: verificationRecord.id,
+          status: 'PENDING',
+          faceScore: faceVerification.overallScore,
+          requiresManualReview: true,
+          createdAt: verificationRecord.createdAt
+        }
+      });
+
+    } else {
+      // ❌ SCORE FAIBLE → REJECTED AUTOMATIQUEMENT
+      await identityVerificationService.updateVerificationStatus(
+        verificationRecord.id,
+        'REJECTED',
+        {
+          faceSimilarityScore: faceVerification.overallScore,
+          rejectionReason: 'Qualité insuffisante du visage détecté',
+          rejectionDetails: faceVerification.reason
+        }
+      );
+
+      // Notifier l'utilisateur
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, phone: true, name: true }
+      });
+
+      if (user) {
+        await notificationService.notifyVerificationCompleted(
+          verificationRecord.id,
+          'REJECTED',
+          user.email,
+          {
+            userId,
+            name: user.name,
+            rejectionReason: 'La similarité faciale est insuffisante. Veuillez réessayer.'
+          }
+        );
+      }
+
+      return res.status(400).json({
+        message: 'Vérification échouée - Score insuffisant',
+        data: {
+          verificationId: verificationRecord.id,
+          status: 'REJECTED',
+          faceScore: faceVerification.overallScore,
+          reason: faceVerification.reason,
+          createdAt: verificationRecord.createdAt
+        }
+      });
+    }
 
   } catch (error) {
     return res.status(500).json({
@@ -293,32 +448,18 @@ exports.getVerificationStatus = async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Récupérer la vérification de l'utilisateur
-    const verification = await prisma.identityVerification.findUnique({
-      where: { userId },
-      select: {
-        id: true,
-        documentType: true,
-        documentCountry: true,
-        status: true,
-        rejectionReason: true,
-        rejectionDetails: true,
-        verifiedAt: true,
-        createdAt: true,
-        faceSimilarityScore: true
-        // NE PAS retourner les images sensibles (documentFrontImage, documentBackImage, selfiePhoto)
-      }
-    });
+    // ===== UTILISER LE SERVICE POUR RÉCUPÉRER LES DÉTAILS =====
+    const result = await identityVerificationService.getVerificationDetails(userId);
 
-    if (!verification) {
+    if (!result.found) {
       return res.status(404).json({
-        error: 'Aucune demande de vérification trouvée'
+        error: result.error
       });
     }
 
     return res.status(200).json({
       message: 'Statut de vérification récupéré',
-      data: verification
+      data: result.verification
     });
 
   } catch (error) {
@@ -328,3 +469,5 @@ exports.getVerificationStatus = async (req, res) => {
     });
   }
 };
+
+module.exports = exports;

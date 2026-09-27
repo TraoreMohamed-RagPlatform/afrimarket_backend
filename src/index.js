@@ -12,6 +12,13 @@ const { loginLimiter, registerLimiter } = require('./middleware/rateLimitMiddlew
 // Import Socket.io
 const { initializeSocket } = require('./socket');
 
+// Import Firebase Service
+const { initializeFirebase } = require('./utils/firebaseService');
+// Ajoute cette ligne avec les autres imports de routes
+const supportRoutes = require('./routes/support');
+
+
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const listingRoutes = require('./routes/listing');
@@ -20,7 +27,10 @@ const favoriteRoutes = require('./routes/favorite');
 const messageRoutes = require('./routes/message');
 const notificationRoutes = require('./routes/notification');
 const ratingRoutes = require('./routes/rating');
-
+const fcmRoutes = require('./routes/fcm');
+const searchRoutes = require('./routes/search');
+const verificationRoutes = require('./routes/verification');
+const adminReportRoutes = require('./routes/adminReports');
 const prisma = new PrismaClient();
 
 // ========================================
@@ -34,6 +44,9 @@ const server = http.createServer(app);
 const io = initializeSocket(server);
 app.set('io', io); // Rendre io accessible dans les routes
 
+// Initialize Firebase
+initializeFirebase();
+
 // ========================================
 // Security Middleware
 // ========================================
@@ -46,6 +59,9 @@ app.use(express.json());
 // ========================================
 // Routes
 // ========================================
+// 
+// Et ajoute cette ligne dans la section app.use() :
+app.use('/api/support', supportRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/listings', listingRoutes);
@@ -54,6 +70,10 @@ app.use('/api/favorites', favoriteRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/ratings', ratingRoutes);
+app.use('/api/fcm', fcmRoutes);
+app.use('/api', searchRoutes);
+app.use('/api/verification', verificationRoutes);
+app.use('/api/admin/reports', adminReportRoutes);
 
 // ========================================
 // Health check

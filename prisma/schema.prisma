@@ -27,13 +27,18 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  listings      Listing[]
-  messages      Message[]
-  ratings       Rating[]
-  sellerRatings Rating[] @relation("seller")
-  favorites     Favorite[]
-  notifications Notification[]
-  verifications Verification[]
+  listings        Listing[]
+  messages        Message[]
+  ratings         Rating[]
+  sellerRatings   Rating[] @relation("seller")
+  favorites       Favorite[]
+  notifications   Notification[]
+  fcmTokens       FCMToken[]
+  verifications   Verification[]
+  contactForms    ContactForm[]
+  supportTickets  SupportTicket[]
+  adminReports    AdminReport[]
+  passwordResets  PasswordReset[]
 
   @@index([email])
   @@index([username])
@@ -97,15 +102,15 @@ model Message {
   content         String
   senderId        String
   sender          User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  
+
   // Pour les messages privés
   conversationId  String?
   conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  
+
   // Pour les commentaires sur annonces
   listingId       String?
   listing         Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  
+
   createdAt       DateTime @default(now())
 
   @@index([senderId])
@@ -182,13 +187,110 @@ model Verification {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, type])
   @@index([userId])
   @@index([verified])
+  @@index([expiresAt])
 }
 
-// Énumérations
+model PasswordReset {
+  id        String   @id @default(cuid())
+  code      String
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model FCMToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  deviceName String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ContactForm {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String
+  category  String   // bug, feature, question, other
+  status    String   @default("OPEN") // OPEN, CLOSED, IN_PROGRESS
+  response  String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model SupportTicket {
+  id          String   @id @default(cuid())
+  ticketNumber String  @unique // TK-001, TK-002, etc
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  status      String   @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED, CLOSED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  response    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model FAQ {
+  id        String   @id @default(cuid())
+  category  String   // account, listings, messaging, payments, other
+  question  String
+  answer    String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([order])
+}
+
+model AdminReport {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   // USERS, LISTINGS, SALES, SUPPORT, REVENUE, etc
+  description String?
+  filters     Json     // Contient les critères de filtre {dateRange, status, category, etc}
+  data        Json     // Contient les données du rapport
+  generatedBy String
+  user        User     @relation(fields: [generatedBy], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([generatedBy])
+  @@index([createdAt])
+}
+
 enum NotificationType {
   MESSAGE
   LISTING_INTEREST

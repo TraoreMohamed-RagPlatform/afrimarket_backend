@@ -11,6 +11,9 @@ const {
   sendVerificationEmail,
   confirmEmail,
   logout,
+  forgotPassword,
+  resetPassword,
+  changePassword,
 } = require('../controllers/authController');
 
 const router = express.Router();
@@ -92,6 +95,38 @@ router.post(
   body('code').notEmpty(),
   validationErrorHandler,
   confirmEmail
+);
+
+// ========================================
+// Password Management Routes
+// ========================================
+
+// Forgot Password - Envoyer code réinitialisation
+router.post(
+  '/forgot-password',
+  body('email').isEmail().normalizeEmail(),
+  validationErrorHandler,
+  forgotPassword
+);
+
+// Reset Password - Réinitialiser avec code
+router.post(
+  '/reset-password',
+  body('email').isEmail().normalizeEmail(),
+  body('code').notEmpty().isLength({ min: 6, max: 6 }),
+  body('newPassword').isLength({ min: 6 }),
+  validationErrorHandler,
+  resetPassword
+);
+
+// Change Password - Changer mot de passe (authentifié)
+router.post(
+  '/change-password',
+  authMiddleware,
+  body('oldPassword').notEmpty(),
+  body('newPassword').isLength({ min: 6 }),
+  validationErrorHandler,
+  changePassword
 );
 
 module.exports = router;

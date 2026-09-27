@@ -2,6 +2,8 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const { generateToken, verifyToken } = require('../utils/tokenUtils');
 const { recordFailedLogin, resetLoginAttempts } = require('../middleware/loginLockoutMiddleware');
+const RecaptchaService = require('../utils/recaptchaService');
+const { sendResetPasswordEmail, sendPasswordChangeConfirmation } = require('../utils/passwordService');
 
 const prisma = new PrismaClient();
 
@@ -49,7 +51,22 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, recaptchaToken } = req.body;
+
+    // Vérifier le reCAPTCHA v3
+    if (!recaptchaToken) {
+      return res.status(400).json({ error: 'reCAPTCHA token is required' });
+    }
+
+    const recaptchaResult = await RecaptchaService.verifyToken(recaptchaToken);
+
+    if (!recaptchaResult.success) {
+      recordFailedLogin(email);
+      return res.status(400).json({
+        error: 'reCAPTCHA verification failed',
+        details: recaptchaResult.error
+      });
+    }
 
     const user = await prisma.user.findUnique({ where: { email } });
 
@@ -216,6 +233,167 @@ const confirmEmail = async (req, res) => {
   }
 };
 
+// Mot de passe oublié - Envoyer code réinitialisation
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Générer code de réinitialisation
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // Expire dans 15 min
+
+    // Supprimer les anciens codes
+    await prisma.passwordReset.deleteMany({
+      where: { userId: user.id },
+    });
+
+    // Créer nouveau code
+    await prisma.passwordReset.create({
+      data: {
+        code,
+        expiresAt,
+        userId: user.id,
+      },
+    });
+
+    // Envoyer email avec code
+    await sendResetPasswordEmail(user.email, user.fullName, code);
+
+    res.json({
+      message: 'Password reset code sent to email',
+      success: true,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Réinitialiser le mot de passe
+const resetPassword = async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ error: 'Email, code and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Vérifier le code de réinitialisation
+    const resetRecord = await prisma.passwordReset.findFirst({
+      where: {
+        userId: user.id,
+        code,
+        used: false,
+      },
+    });
+
+    if (!resetRecord) {
+      return res.status(400).json({ error: 'Invalid reset code' });
+    }
+
+    if (new Date() > resetRecord.expiresAt) {
+      return res.status(400).json({ error: 'Reset code expired' });
+    }
+
+    // Hasher le nouveau mot de passe
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Mettre à jour le mot de passe et marquer le code comme utilisé
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    await prisma.passwordReset.update({
+      where: { id: resetRecord.id },
+      data: { used: true },
+    });
+
+    res.json({
+      message: 'Password reset successfully',
+      success: true,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Changer le mot de passe (utilisateur connecté)
+const changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user.userId;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'Old password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    if (oldPassword === newPassword) {
+      return res.status(400).json({ error: 'New password must be different from old password' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Vérifier l'ancien mot de passe
+    const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hasher le nouveau mot de passe
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Mettre à jour le mot de passe
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    // Envoyer email de confirmation
+    try {
+      await sendPasswordChangeConfirmation(user.email, user.fullName);
+    } catch (error) {
+      console.warn('Erreur envoi email confirmation:', error);
+      // Ne pas bloquer la réponse si l'email échoue
+    }
+
+    res.json({
+      message: 'Password changed successfully',
+      success: true,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const logout = (req, res) => {
   res.json({ message: 'Logout successful' });
 };
@@ -227,5 +405,8 @@ module.exports = {
   refreshToken,
   sendVerificationEmail,
   confirmEmail,
+  forgotPassword,
+  resetPassword,
+  changePassword,
   logout,
 };

@@ -32,10 +32,12 @@ const searchRoutes = require('./routes/search');
 const verificationRoutes = require('./routes/verification');
 const adminReportRoutes = require('./routes/adminReports');
 const identityVerificationRoutes = require('./routes/identityVerificationRoutes');
+const adminIdentityVerificationRoutes = require('./routes/adminIdentityVerificationRoutes');
 const prisma = new PrismaClient();
 
 // ========================================
 // EXPRESS APP & HTTP SERVER
+
 // ========================================
 
 const app = express();
@@ -75,7 +77,7 @@ app.use('/api/fcm', fcmRoutes);
 app.use('/api', searchRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/admin/reports', adminReportRoutes);
-app.use('/api/identity-verification', identityVerificationRoutes);
+app.use('/api/admin/identity-verification', adminIdentityVerificationRoutes);
 
 // ========================================
 // Health check
@@ -121,7 +123,7 @@ app.use((err, req, res, next) => {
 // ========================================
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || 'localhost';
+const HOST = process.env.HOST || '127.0.0.1';
 
 server.listen(PORT, HOST, () => {
   console.log(`✅ Backend AfriMarket démarré sur http://${HOST}:${PORT}`);

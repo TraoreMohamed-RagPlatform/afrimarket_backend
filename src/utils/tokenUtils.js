@@ -1,20 +1,20 @@
 const jwt = require('jsonwebtoken');
 
-const generateToken = (userId, expiresIn = '7d') => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn });
-};
+const JWT_ALGORITHM = 'HS256';
 
+const generateToken = (userId, expiresIn = '7d') =>
+  jwt.sign({ userId }, process.env.JWT_SECRET, {
+    algorithm: JWT_ALGORITHM,
+    expiresIn,
+  });
+
+// Ne jamais journaliser le secret, le token ni son contenu.
 const verifyToken = (token) => {
   try {
-    console.log('🔍 Vérification du token...');
-    console.log('JWT_SECRET:', process.env.JWT_SECRET);
-    console.log('Token reçu:', token.substring(0, 50) + '...');
-    
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('✅ Token vérifié:', decoded);
-    return decoded;
-  } catch (error) {
-    console.log('❌ Erreur vérification:', error.message);
+    return jwt.verify(token, process.env.JWT_SECRET, {
+      algorithms: [JWT_ALGORITHM],
+    });
+  } catch {
     return null;
   }
 };

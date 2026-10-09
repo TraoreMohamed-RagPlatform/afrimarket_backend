@@ -84,10 +84,11 @@ exports.validateDocumentQuality = async (imagePath) => {
       }
     };
   } catch (error) {
+    console.error('[identityVerificationService]', error);
     return {
       valid: false,
       score: 0,
-      error: `Erreur lors de l'analyse de qualité: ${error.message}`,
+      error: 'Erreur lors de l\'analyse de qualité',
       issues: ['Impossible d\'analyser l\'image']
     };
   }
@@ -96,7 +97,7 @@ exports.validateDocumentQuality = async (imagePath) => {
 // =============================================
 // 2. VALIDER L'EXPIRATION DU DOCUMENT
 // =============================================
-exports.validateDocumentExpiry = async (documentNumber, documentType, documentCountry, submittedDate) => {
+exports.validateDocumentExpiry = (documentNumber, documentType, documentCountry, submittedDate) => {
   try {
     // Pour une implémentation réelle, vous intégreriez une API externe
     // qui vérifie si le numéro de document est valide et pas expiré
@@ -122,9 +123,10 @@ exports.validateDocumentExpiry = async (documentNumber, documentType, documentCo
       message: 'Document valide'
     };
   } catch (error) {
+    console.error('[identityVerificationService]', error);
     return {
       valid: false,
-      error: `Erreur lors de la validation d'expiration: ${error.message}`
+      error: 'Erreur lors de la validation d\'expiration'
     };
   }
 };
@@ -161,9 +163,10 @@ exports.updateVerificationStatus = async (verificationId, status, data = {}) => 
       message: `Statut mis à jour: ${status}`
     };
   } catch (error) {
+    console.error('[identityVerificationService]', error);
     return {
       success: false,
-      error: `Erreur lors de la mise à jour du statut: ${error.message}`
+      error: 'Erreur lors de la mise à jour du statut'
     };
   }
 };
@@ -208,9 +211,10 @@ exports.getVerificationDetails = async (verificationId) => {
       verification: verification
     };
   } catch (error) {
+    console.error('[identityVerificationService]', error);
     return {
       found: false,
-      error: `Erreur lors de la récupération des détails: ${error.message}`
+      error: 'Erreur lors de la récupération des détails'
     };
   }
 };
@@ -246,9 +250,10 @@ exports.incrementReviewCount = async (verificationId) => {
       message: `Compteur de révision mis à jour: ${updated.reviewCount}`
     };
   } catch (error) {
+    console.error('[identityVerificationService]', error);
     return {
       success: false,
-      error: `Erreur lors de l'incrémentation: ${error.message}`
+      error: 'Erreur lors de l\'incrémentation'
     };
   }
 };

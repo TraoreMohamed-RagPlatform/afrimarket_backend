@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendEmail } = require('../utils/emailService');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -33,7 +34,7 @@ const createListing = async (req, res) => {
       listing,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'listingController.createListing');
   }
 };
 
@@ -93,7 +94,7 @@ const getListings = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'listingController.getListings');
   }
 };
 
@@ -129,7 +130,7 @@ const getListing = async (req, res) => {
 
     res.json({ listing });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'listingController.getListing');
   }
 };
 
@@ -208,7 +209,7 @@ const updateListing = async (req, res) => {
       listing: updatedListing,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'listingController.updateListing');
   }
 };
 
@@ -239,7 +240,7 @@ const deleteListing = async (req, res) => {
 
     res.json({ message: 'Listing deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'listingController.deleteListing');
   }
 };
 
@@ -314,7 +315,7 @@ const markAsSold = async (req, res) => {
       listing: soldListing,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'listingController.markAsSold');
   }
 };
 

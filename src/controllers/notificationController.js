@@ -1,9 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const { sendServerError } = require('../utils/httpErrors');
 
 // Envoyer une notification à un utilisateur
-const sendNotification = async (req, res) => {
+const sendNotification = (req, res) => {
   try {
     const { userId, type, title, message, data } = req.body;
 
@@ -47,7 +45,7 @@ const sendNotification = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'notificationController.handler');
   }
 };
 

@@ -1,6 +1,7 @@
 // src/controllers/supportController.js
 const SupportService = require('../utils/supportService');
 const RecaptchaService = require('../utils/recaptchaService');
+const { sendServerError } = require('../utils/httpErrors');
 
 class SupportController {
   // Contact Form Endpoints
@@ -49,10 +50,7 @@ class SupportController {
         data: contactForm,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.createContactForm');
     }
   }
 
@@ -72,10 +70,7 @@ class SupportController {
         total: contactForms.length,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.getContactForms');
     }
   }
 
@@ -96,10 +91,7 @@ class SupportController {
         data: contactForm,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.getContactFormById');
     }
   }
 
@@ -119,10 +111,7 @@ class SupportController {
         data: updatedForm,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.updateContactForm');
     }
   }
 
@@ -136,10 +125,7 @@ class SupportController {
         message: 'Formulaire de contact supprimé avec succès',
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.deleteContactForm');
     }
   }
 
@@ -169,10 +155,7 @@ class SupportController {
         data: ticket,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.createSupportTicket');
     }
   }
 
@@ -193,10 +176,7 @@ class SupportController {
         total: tickets.length,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.getSupportTickets');
     }
   }
 
@@ -217,10 +197,7 @@ class SupportController {
         data: ticket,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.getSupportTicketById');
     }
   }
 
@@ -241,10 +218,7 @@ class SupportController {
         data: updatedTicket,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.updateSupportTicket');
     }
   }
 
@@ -258,10 +232,7 @@ class SupportController {
         message: 'Ticket de support supprimé avec succès',
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.deleteSupportTicket');
     }
   }
 
@@ -290,10 +261,7 @@ class SupportController {
         data: faq,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.createFAQ');
     }
   }
 
@@ -308,10 +276,7 @@ class SupportController {
         total: faqs.length,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.getFAQs');
     }
   }
 
@@ -332,10 +297,7 @@ class SupportController {
         data: faq,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.getFAQById');
     }
   }
 
@@ -357,10 +319,7 @@ class SupportController {
         data: updatedFAQ,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.updateFAQ');
     }
   }
 
@@ -374,10 +333,7 @@ class SupportController {
         message: 'FAQ supprimée avec succès',
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.deleteFAQ');
     }
   }
 
@@ -390,10 +346,7 @@ class SupportController {
         data: categories,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'supportController.getFAQCategories');
     }
   }
 }

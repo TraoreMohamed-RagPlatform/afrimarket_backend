@@ -4,6 +4,7 @@ const { generateToken, verifyToken } = require('../utils/tokenUtils');
 const { recordFailedLogin, resetLoginAttempts } = require('../middleware/loginLockoutMiddleware');
 const RecaptchaService = require('../utils/recaptchaService');
 const { sendResetPasswordEmail, sendPasswordChangeConfirmation } = require('../utils/passwordService');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -45,7 +46,7 @@ const register = async (req, res) => {
       refreshToken,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.register');
   }
 };
 
@@ -105,7 +106,7 @@ const login = async (req, res) => {
       refreshToken,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.login');
   }
 };
 
@@ -131,7 +132,7 @@ const getProfile = async (req, res) => {
 
     res.json({ user });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.getProfile');
   }
 };
 
@@ -157,7 +158,7 @@ const refreshToken = async (req, res) => {
 
     res.json({ accessToken });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.refreshToken');
   }
 };
 
@@ -187,7 +188,7 @@ const sendVerificationEmail = async (req, res) => {
 
     res.json({ message: 'Verification code sent' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.sendVerificationEmail');
   }
 };
 
@@ -229,7 +230,7 @@ const confirmEmail = async (req, res) => {
 
     res.json({ message: 'Email verified successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.confirmEmail');
   }
 };
 
@@ -274,7 +275,7 @@ const forgotPassword = async (req, res) => {
       success: true,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.forgotPassword');
   }
 };
 
@@ -333,7 +334,7 @@ const resetPassword = async (req, res) => {
       success: true,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.resetPassword');
   }
 };
 
@@ -390,7 +391,7 @@ const changePassword = async (req, res) => {
       success: true,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'authController.changePassword');
   }
 };
 

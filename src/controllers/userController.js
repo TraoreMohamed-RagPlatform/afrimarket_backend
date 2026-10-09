@@ -1,4 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -32,7 +33,7 @@ const getUserProfile = async (req, res) => {
 
     res.json({ user });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'userController.getUserProfile');
   }
 };
 
@@ -70,7 +71,7 @@ const getMyProfile = async (req, res) => {
 
     res.json({ user });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'userController.getMyProfile');
   }
 };
 
@@ -115,7 +116,7 @@ const updateMyProfile = async (req, res) => {
       user: updatedUser,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'userController.updateMyProfile');
   }
 };
 
@@ -160,16 +161,15 @@ const getMySettings = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'userController.getMySettings');
   }
 };
 
 // ========================================
 // Update My Settings (Protected)
 // ========================================
-const updateMySettings = async (req, res) => {
+const updateMySettings = (req, res) => {
   try {
-    const userId = req.user.userId;
     const { notifications, privacy } = req.body;
 
     // Pour maintenant, on retourne une réponse simple
@@ -190,7 +190,7 @@ const updateMySettings = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'userController.getMySettings');
   }
 };
 
@@ -228,7 +228,7 @@ const deleteMyAccount = async (req, res) => {
 
     res.json({ message: 'Compte supprimé avec succès' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'userController.deleteMyAccount');
   }
 };
 

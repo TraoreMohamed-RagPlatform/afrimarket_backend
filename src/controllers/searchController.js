@@ -1,4 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -130,8 +131,7 @@ const advancedSearch = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Erreur recherche:', error.message);
-    return res.status(500).json({ error: error.message });
+    return sendServerError(res, error, 'searchController.advancedSearch');
   }
 };
 
@@ -177,8 +177,7 @@ const getFilterOptions = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Erreur récupération filtres:', error.message);
-    return res.status(500).json({ error: error.message });
+    return sendServerError(res, error, 'searchController.getFilterOptions');
   }
 };
 

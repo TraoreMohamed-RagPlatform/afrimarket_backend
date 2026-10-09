@@ -1,6 +1,6 @@
 const fs = require('fs').promises;
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const sharp = require('sharp');
 const { PrismaClient } = require('@prisma/client');
 
@@ -9,6 +9,7 @@ const identityVerificationService = require('../services/identityVerificationSer
 const faceMatchingService = require('../services/faceMatchingService');
 const notificationService = require('../services/notificationService');
 const { decideKycOutcome, KYC_OUTCOME } = require('../services/kycDecision');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -76,9 +77,10 @@ const validateImageFile = async (file) => {
     return { valid: true };
 
   } catch (error) {
+    console.error('[identityVerificationController]', error);
     return {
       valid: false,
-      error: `Erreur lors de la validation: ${error.message}`
+      error: 'Erreur lors de la validation'
     };
   }
 };
@@ -136,8 +138,8 @@ exports.uploadIdentityDocuments = async (req, res) => {
     await fs.mkdir(userDocDir, { recursive: true });
 
     // Renommer et sauvegarder les fichiers avec UUID
-    const frontFilename = `${uuidv4()}.png`;
-    const backFilename = `${uuidv4()}.png`;
+    const frontFilename = `${randomUUID()}.png`;
+    const backFilename = `${randomUUID()}.png`;
 
     const frontPath = path.join(userDocDir, frontFilename);
     const backPath = path.join(userDocDir, backFilename);
@@ -168,10 +170,8 @@ exports.uploadIdentityDocuments = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de l\'upload des documents',
-      details: error.message
-    });
+    console.error('[identityVerificationController]', error);
+    return sendServerError(res, error, 'identityVerificationController.uploadIdentityDocuments');
   }
 };
 
@@ -218,7 +218,7 @@ exports.uploadSelfie = async (req, res) => {
     await fs.mkdir(userSelfieDir, { recursive: true });
 
     // Renommer et sauvegarder le fichier
-    const filename = `${uuidv4()}.png`;
+    const filename = `${randomUUID()}.png`;
     const selfieFilePath = path.join(userSelfieDir, filename);
 
     // Convertir en PNG
@@ -241,10 +241,8 @@ exports.uploadSelfie = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de l\'upload du selfie',
-      details: error.message
-    });
+    console.error('[identityVerificationController]', error);
+    return sendServerError(res, error, 'identityVerificationController.uploadSelfie');
   }
 };
 
@@ -437,10 +435,8 @@ exports.submitIdentityVerification = async (req, res) => {
     }
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de la soumission de la demande',
-      details: error.message
-    });
+    console.error('[identityVerificationController]', error);
+    return sendServerError(res, error, 'identityVerificationController.submitIdentityVerification');
   }
 };
 
@@ -466,10 +462,8 @@ exports.getVerificationStatus = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de la récupération du statut',
-      details: error.message
-    });
+    console.error('[identityVerificationController]', error);
+    return sendServerError(res, error, 'identityVerificationController.getVerificationStatus');
   }
 };
 

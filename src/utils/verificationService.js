@@ -38,7 +38,7 @@ const sendSmsOTP = async (phoneNumber, otp, type = 'verification') => {
     return { success: true, data: response.data };
   } catch (error) {
     console.error('❌ Erreur envoi SMS:', error.response?.data || error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: 'Operation failed' };
   }
 };
 
@@ -85,7 +85,7 @@ const sendEmailOTP = async (email, otp, emailService) => {
     return { success: true };
   } catch (error) {
     console.error('❌ Erreur envoi email:', error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: 'Operation failed' };
   }
 };
 

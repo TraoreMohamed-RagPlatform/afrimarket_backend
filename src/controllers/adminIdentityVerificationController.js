@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const identityVerificationService = require('../services/identityVerificationService');
 const notificationService = require('../services/notificationService');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -31,10 +32,7 @@ exports.getVerificationsPending = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de la récupération des demandes',
-      details: error.message
-    });
+    return sendServerError(res, error, 'adminIdentityVerificationController.getVerificationsPending');
   }
 };
 
@@ -92,10 +90,7 @@ exports.getVerificationById = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de la récupération des détails',
-      details: error.message
-    });
+    return sendServerError(res, error, 'adminIdentityVerificationController.getVerificationById');
   }
 };
 
@@ -120,7 +115,7 @@ exports.approveVerification = async (req, res) => {
     }
 
     // Mettre à jour le statut
-    const updated = await identityVerificationService.updateVerificationStatus(
+    await identityVerificationService.updateVerificationStatus(
       verificationId,
       'VERIFIED',
       {
@@ -159,10 +154,7 @@ exports.approveVerification = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de l\'approbation',
-      details: error.message
-    });
+    return sendServerError(res, error, 'adminIdentityVerificationController.approveVerification');
   }
 };
 
@@ -194,7 +186,7 @@ exports.rejectVerification = async (req, res) => {
     }
 
     // Mettre à jour le statut
-    const updated = await identityVerificationService.updateVerificationStatus(
+    await identityVerificationService.updateVerificationStatus(
       verificationId,
       'REJECTED',
       {
@@ -239,10 +231,7 @@ exports.rejectVerification = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors du rejet',
-      details: error.message
-    });
+    return sendServerError(res, error, 'adminIdentityVerificationController.rejectVerification');
   }
 };
 
@@ -277,10 +266,7 @@ exports.addVerificationNotes = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de l\'ajout des notes',
-      details: error.message
-    });
+    return sendServerError(res, error, 'adminIdentityVerificationController.addVerificationNotes');
   }
 };
 
@@ -352,10 +338,7 @@ exports.getVerificationStats = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de la récupération des statistiques',
-      details: error.message
-    });
+    return sendServerError(res, error, 'adminIdentityVerificationController.getVerificationStats');
   }
 };
 
@@ -398,10 +381,7 @@ exports.getAllVerifications = async (req, res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({
-      error: 'Erreur lors de la récupération des vérifications',
-      details: error.message
-    });
+    return sendServerError(res, error, 'adminIdentityVerificationController.getAllVerifications');
   }
 };
 

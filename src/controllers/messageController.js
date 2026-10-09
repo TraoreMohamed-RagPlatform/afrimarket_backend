@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendMessageReceivedEmail } = require('../utils/emailTemplates');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -47,7 +48,7 @@ const getOrCreateConversation = async (req, res) => {
 
     res.json(conversation);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'messageController.getOrCreateConversation');
   }
 };
 
@@ -161,7 +162,7 @@ const sendMessage = async (req, res) => {
 
     res.json(message);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'messageController.sendMessage');
   }
 };
 
@@ -184,7 +185,7 @@ const getConversations = async (req, res) => {
 
     res.json(conversations);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'messageController.getConversations');
   }
 };
 
@@ -214,7 +215,7 @@ const getMessages = async (req, res) => {
 
     res.json(messages);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'messageController.getMessages');
   }
 };
 
@@ -243,7 +244,7 @@ const deleteMessage = async (req, res) => {
 
     res.json({ message: 'Message supprimé avec succès' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'messageController.deleteMessage');
   }
 };
 

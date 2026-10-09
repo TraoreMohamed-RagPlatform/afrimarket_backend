@@ -309,10 +309,10 @@ async function detectFaceWithGoogle(base64Image) {
   return { detected: false, error: 'Google Vision non configuré' };
 }
 
-async function detectLivenessWithGoogle(base64Image) {
-  // Google Vision n'a pas de détection de liveness directe
-  // Utiliser un modèle tiers
-  return { isLive: true, confidence: 0.8 };
+// Google Vision ne fournit pas de détection du vivant : non implémenté.
+// Fermé par défaut : on ne déclare jamais « vivant » sans analyse réelle.
+async function detectLivenessWithGoogle(_base64Image) {
+  return { isLive: false, confidence: 0, method: 'not_implemented' };
 }
 
 // AWS Rekognition - Placeholder
@@ -321,14 +321,10 @@ async function detectFaceWithAWS(base64Image) {
   return { detected: false, error: 'AWS Rekognition non configuré' };
 }
 
-// Analyse basique des métadonnées
-async function analyzeImageMetadata(imagePath) {
-  // Analyse simple basée sur les métadonnées de l'image
-  return {
-    isLive: true,
-    confidence: 0.75,
-    method: 'metadata_analysis'
-  };
+// Aucun fournisseur de détection du vivant configuré : non implémenté.
+// Fermé par défaut : la demande partira en revue manuelle.
+async function analyzeImageMetadata(_imagePath) {
+  return { isLive: false, confidence: 0, method: 'not_implemented' };
 }
 
 module.exports = exports;

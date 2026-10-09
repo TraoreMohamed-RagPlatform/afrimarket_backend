@@ -8,6 +8,7 @@ const { PrismaClient } = require('@prisma/client');
 const identityVerificationService = require('../services/identityVerificationService');
 const faceMatchingService = require('../services/faceMatchingService');
 const notificationService = require('../services/notificationService');
+const { decideKycOutcome, KYC_OUTCOME } = require('../services/kycDecision');
 
 const prisma = new PrismaClient();
 
@@ -87,7 +88,7 @@ const validateImageFile = async (file) => {
 // =============================================
 exports.uploadIdentityDocuments = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { documentType } = req.body;
 
     // Vérifier que les deux fichiers sont présents
@@ -179,7 +180,7 @@ exports.uploadIdentityDocuments = async (req, res) => {
 // =============================================
 exports.uploadSelfie = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
 
     // Vérifier que le fichier est présent
     if (!req.file) {
@@ -252,7 +253,7 @@ exports.uploadSelfie = async (req, res) => {
 // =============================================
 exports.submitIdentityVerification = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const {
       documentType,
       documentNumber,
@@ -318,10 +319,12 @@ exports.submitIdentityVerification = async (req, res) => {
     );
 
     // =====================
-    // LOGIQUE HYBRIDE - Score-based routing
+    // DÉCISION - voir services/kycDecision.js
+    // (revue manuelle par défaut tant que la décision automatique est désactivée)
     // =====================
+    const outcome = decideKycOutcome(faceVerification.overallScore);
 
-    if (faceVerification.overallScore >= 90) {
+    if (outcome === KYC_OUTCOME.VERIFIED) {
       // ✅ SCORE EXCELLENT → VERIFIED AUTOMATIQUEMENT
       await identityVerificationService.updateVerificationStatus(
         verificationRecord.id,
@@ -335,7 +338,7 @@ exports.submitIdentityVerification = async (req, res) => {
       // Notifier l'utilisateur
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { email: true, phone: true, name: true }
+        select: { email: true, phone: true, fullName: true }
       });
 
       if (user) {
@@ -343,7 +346,7 @@ exports.submitIdentityVerification = async (req, res) => {
           verificationRecord.id,
           'VERIFIED',
           user.email,
-          { userId, name: user.name }
+          { userId, name: user.fullName }
         );
       }
 
@@ -358,7 +361,7 @@ exports.submitIdentityVerification = async (req, res) => {
         }
       });
 
-    } else if (faceVerification.overallScore >= 60) {
+    } else if (outcome === KYC_OUTCOME.MANUAL_REVIEW) {
       // ⏳ SCORE MOYEN → EN ATTENTE DE VÉRIFICATION ADMIN
       await identityVerificationService.updateVerificationStatus(
         verificationRecord.id,
@@ -405,7 +408,7 @@ exports.submitIdentityVerification = async (req, res) => {
       // Notifier l'utilisateur
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { email: true, phone: true, name: true }
+        select: { email: true, phone: true, fullName: true }
       });
 
       if (user) {
@@ -415,7 +418,7 @@ exports.submitIdentityVerification = async (req, res) => {
           user.email,
           {
             userId,
-            name: user.name,
+            name: user.fullName,
             rejectionReason: 'La similarité faciale est insuffisante. Veuillez réessayer.'
           }
         );
@@ -446,7 +449,7 @@ exports.submitIdentityVerification = async (req, res) => {
 // =============================================
 exports.getVerificationStatus = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
 
     // ===== UTILISER LE SERVICE POUR RÉCUPÉRER LES DÉTAILS =====
     const result = await identityVerificationService.getVerificationDetails(userId);

@@ -1,21 +1,16 @@
 const express = require('express');
-const router = express.Router();
 const AdminReportController = require('../controllers/adminReportController');
 const authMiddleware = require('../middleware/authMiddleware');
+const requireRole = require('../middleware/requireRole');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
-// Middleware: Vérifier que l'utilisateur est admin
-const isAdmin = (req, res, next) => {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({
-      success: false,
-      message: 'Accès refusé - Administrateur requis',
-    });
-  }
-  next();
-};
+const router = express.Router();
 
-// Routes protégées (Admin seulement)
-router.use(authMiddleware, isAdmin);
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
+
+// Toutes les routes de ce fichier sont réservées aux administrateurs.
+router.use(authMiddleware, requireRole('ADMIN'));
 
 // Rapports personnalisés
 router.post('/create', AdminReportController.createReport);

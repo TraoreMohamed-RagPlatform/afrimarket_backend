@@ -1,11 +1,15 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const authMiddleware = require('../middleware/authMiddleware');
+const { apiLimiter } = require('../middleware/apiLimiter');
 const {
   sendNotification,
 } = require('../controllers/notificationController');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 
 const validationErrorHandler = (req, res, next) => {
   const errors = validationResult(req);

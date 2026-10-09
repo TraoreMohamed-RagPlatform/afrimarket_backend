@@ -41,7 +41,7 @@ const getUserProfile = async (req, res) => {
 // ========================================
 const getMyProfile = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -79,7 +79,7 @@ const getMyProfile = async (req, res) => {
 // ========================================
 const updateMyProfile = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { fullName, bio, phone, location, avatar } = req.body;
 
     // Validation
@@ -124,7 +124,7 @@ const updateMyProfile = async (req, res) => {
 // ========================================
 const getMySettings = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -169,7 +169,7 @@ const getMySettings = async (req, res) => {
 // ========================================
 const updateMySettings = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { notifications, privacy } = req.body;
 
     // Pour maintenant, on retourne une réponse simple
@@ -199,7 +199,7 @@ const updateMySettings = async (req, res) => {
 // ========================================
 const deleteMyAccount = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { password } = req.body;
 
     if (!password) {

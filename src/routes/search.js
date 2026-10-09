@@ -1,8 +1,12 @@
 const express = require('express');
 const { advancedSearch, getFilterOptions } = require('../controllers/searchController');
 const rateLimit = require('express-rate-limit');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
 const router = express.Router();
+
+// Ce routeur est monté sur « /api » : un router.use() s'appliquerait à toute
+// l'API (double comptage). Le limiteur commun est donc posé route par route.
 
 // Rate limiting for search endpoint
 const searchLimiter = rateLimit({
@@ -24,11 +28,11 @@ const filterLimiter = rateLimit({
 // ========================================
 // GET /search - Advanced Search
 // ========================================
-router.get('/search', searchLimiter, advancedSearch);
+router.get('/search', apiLimiter, searchLimiter, advancedSearch);
 
 // ========================================
 // GET /filters - Get Filter Options
 // ========================================
-router.get('/filters', filterLimiter, getFilterOptions);
+router.get('/filters', apiLimiter, filterLimiter, getFilterOptions);
 
 module.exports = router;

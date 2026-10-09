@@ -2,8 +2,12 @@ const express = require('express');
 const authMiddleware = require('../middleware/authMiddleware');
 const { rateLimit } = require('express-rate-limit');
 const messageController = require('../controllers/messageController');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 
 const messageSendLimiter = rateLimit({
   windowMs: 60 * 1000,

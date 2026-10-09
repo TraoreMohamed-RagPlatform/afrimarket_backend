@@ -1,5 +1,9 @@
 const express = require('express');
+const { apiLimiter } = require('../middleware/apiLimiter');
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 const identityVerificationController = require('../controllers/identityVerificationController');
 const { uploadDocuments, uploadSelfie } = require('../middleware/uploadMiddleware');
 const authMiddleware = require('../middleware/authMiddleware');

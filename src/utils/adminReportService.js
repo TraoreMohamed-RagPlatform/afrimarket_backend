@@ -1,6 +1,38 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// Tri et pagination : seules ces valeurs sont acceptées. Une clé de tri venant
+// de la requête ne doit jamais devenir directement un nom de propriété
+// (injection de propriété, CWE-915).
+const REPORT_SORT_FIELDS = Object.freeze(['createdAt', 'updatedAt', 'title', 'type']);
+const SORT_ORDERS = Object.freeze(['asc', 'desc']);
+const MAX_REPORTS_PER_PAGE = 100;
+
+// Construit l'objet de tri à partir d'une liste fixe (aucune clé dynamique).
+const buildOrderBy = (sortBy, sortOrder) => {
+  switch (sortBy) {
+    case 'updatedAt':
+      return { updatedAt: sortOrder };
+    case 'title':
+      return { title: sortOrder };
+    case 'type':
+      return { type: sortOrder };
+    default:
+      return { createdAt: sortOrder };
+  }
+};
+
+const toReportQueryOptions = ({ page, limit, sortBy, sortOrder } = {}) => {
+  const pageNum = Number.parseInt(page, 10);
+  const limitNum = Number.parseInt(limit, 10);
+  return {
+    page: Number.isInteger(pageNum) && pageNum > 0 ? pageNum : 1,
+    limit: Number.isInteger(limitNum) && limitNum > 0 ? Math.min(limitNum, MAX_REPORTS_PER_PAGE) : 10,
+    sortBy: REPORT_SORT_FIELDS.includes(sortBy) ? sortBy : 'createdAt',
+    sortOrder: SORT_ORDERS.includes(sortOrder) ? sortOrder : 'desc',
+  };
+};
+
 class AdminReportService {
   // Créer un rapport
   static async createReport(data) {
@@ -36,12 +68,13 @@ class AdminReportService {
     try {
       // Bug corrigé : les filtres étaient passés mais jamais lus.
       const { type, generatedBy } = filters;
-      const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = options;
+      const { page, limit, sortBy, sortOrder } = toReportQueryOptions(options);
       const skip = (page - 1) * limit;
 
       const where = {};
-      if (type) where.type = type;
-      if (generatedBy) where.generatedBy = generatedBy;
+      // Uniquement des chaînes : un objet ({ contains: ... }) changerait le filtre.
+      if (typeof type === 'string' && type) where.type = type;
+      if (typeof generatedBy === 'string' && generatedBy) where.generatedBy = generatedBy;
 
       const reports = await prisma.adminReport.findMany({
         where,
@@ -56,9 +89,7 @@ class AdminReportService {
         },
         skip,
         take: limit,
-        orderBy: {
-          [sortBy]: sortOrder,
-        },
+        orderBy: buildOrderBy(sortBy, sortOrder),
       });
 
       const total = await prisma.adminReport.count({ where });
@@ -309,3 +340,5 @@ class AdminReportService {
 }
 
 module.exports = AdminReportService;
+module.exports.toReportQueryOptions = toReportQueryOptions;
+module.exports.buildOrderBy = buildOrderBy;

@@ -21,10 +21,11 @@ const sendEmail = async (to, subject, html, from = 'noreply@afrimarket.com') => 
     };
 
     const result = await transporter.sendMail(mailOptions);
-    console.log(`✅ Email envoyé à ${to}: ${result.messageId}`);
+    // Le destinataire n'est pas journalisé (donnée personnelle).
+    console.log('✅ Email envoyé: %s', result.messageId);
     return result;
   } catch (error) {
-    console.error(`❌ Erreur envoi email à ${to}:`, error.message);
+    console.error('❌ Erreur envoi email:', error.message);
     throw error;
   }
 };

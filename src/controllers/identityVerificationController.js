@@ -10,6 +10,7 @@ const faceMatchingService = require('../services/faceMatchingService');
 const notificationService = require('../services/notificationService');
 const { decideKycOutcome, KYC_OUTCOME } = require('../services/kycDecision');
 const { sendServerError } = require('../utils/httpErrors');
+const { tempUploadPath, removeTempUploads } = require('../middleware/uploadMiddleware');
 const {
   KYC_UPLOAD_ROOT,
   KYC_FILE_KIND,
@@ -44,7 +45,7 @@ initializeUploadDir();
 // =============================================
 // VALIDATION DES FICHIERS
 // =============================================
-const validateImageFile = async (file) => {
+const validateImageFile = async (file, filePath) => {
   try {
     // 1. Vérifier le MIME type
     if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
@@ -63,7 +64,7 @@ const validateImageFile = async (file) => {
     }
 
     // 3. Vérifier les dimensions de l'image avec sharp
-    const metadata = await sharp(file.path).metadata();
+    const metadata = await sharp(filePath).metadata();
 
     if (!metadata.width || !metadata.height) {
       return {
@@ -95,6 +96,8 @@ const validateImageFile = async (file) => {
 // 1. UPLOAD DES DOCUMENTS (FRONT + BACK)
 // =============================================
 exports.uploadIdentityDocuments = async (req, res) => {
+  // Les fichiers temporaires sont toujours supprimés (succès ou refus).
+  const uploaded = [req.files?.frontImage?.[0], req.files?.backImage?.[0]];
   try {
     const userId = req.user.userId;
     const { documentType } = req.body;
@@ -108,20 +111,22 @@ exports.uploadIdentityDocuments = async (req, res) => {
 
     const frontFile = req.files.frontImage[0];
     const backFile = req.files.backImage[0];
+    const frontTemp = tempUploadPath(frontFile);
+    const backTemp = tempUploadPath(backFile);
 
     // Valider les deux fichiers
-    const frontValidation = await validateImageFile(frontFile);
+    const frontValidation = await validateImageFile(frontFile, frontTemp);
     if (!frontValidation.valid) {
       return res.status(400).json({ error: frontValidation.error });
     }
 
-    const backValidation = await validateImageFile(backFile);
+    const backValidation = await validateImageFile(backFile, backTemp);
     if (!backValidation.valid) {
       return res.status(400).json({ error: backValidation.error });
     }
 
     // ===== UTILISER LE SERVICE POUR VALIDER LA QUALITÉ =====
-    const frontQuality = await identityVerificationService.validateDocumentQuality(frontFile.path);
+    const frontQuality = await identityVerificationService.validateDocumentQuality(frontTemp);
     if (!frontQuality.valid) {
       return res.status(400).json({
         error: 'Qualité insuffisante du document (face avant)',
@@ -130,7 +135,7 @@ exports.uploadIdentityDocuments = async (req, res) => {
       });
     }
 
-    const backQuality = await identityVerificationService.validateDocumentQuality(backFile.path);
+    const backQuality = await identityVerificationService.validateDocumentQuality(backTemp);
     if (!backQuality.valid) {
       return res.status(400).json({
         error: 'Qualité insuffisante du document (face arrière)',
@@ -151,12 +156,8 @@ exports.uploadIdentityDocuments = async (req, res) => {
     const backPath = path.join(userDocDir, backFilename);
 
     // Copier et convertir en PNG avec sharp
-    await sharp(frontFile.path).png().toFile(frontPath);
-    await sharp(backFile.path).png().toFile(backPath);
-
-    // Supprimer les fichiers temporaires
-    await fs.unlink(frontFile.path);
-    await fs.unlink(backFile.path);
+    await sharp(frontTemp).png().toFile(frontPath);
+    await sharp(backTemp).png().toFile(backPath);
 
     // Chemins publics à renvoyer lors de la soumission (voir services/kycFiles.js)
     const frontRelativePath = toPublicPath(userId, KYC_FILE_KIND.DOCUMENT, frontFilename);
@@ -176,8 +177,9 @@ exports.uploadIdentityDocuments = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[identityVerificationController]', error);
     return sendServerError(res, error, 'identityVerificationController.uploadIdentityDocuments');
+  } finally {
+    await removeTempUploads(...uploaded);
   }
 };
 
@@ -185,6 +187,8 @@ exports.uploadIdentityDocuments = async (req, res) => {
 // 2. UPLOAD DU SELFIE
 // =============================================
 exports.uploadSelfie = async (req, res) => {
+  // Le fichier temporaire est toujours supprimé (succès ou refus).
+  const uploaded = req.file;
   try {
     const userId = req.user.userId;
 
@@ -195,14 +199,16 @@ exports.uploadSelfie = async (req, res) => {
       });
     }
 
+    const selfieTemp = tempUploadPath(req.file);
+
     // Valider le fichier
-    const validation = await validateImageFile(req.file);
+    const validation = await validateImageFile(req.file, selfieTemp);
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
 
     // ===== UTILISER LE SERVICE POUR VALIDER LA QUALITÉ =====
-    const quality = await identityVerificationService.validateDocumentQuality(req.file.path);
+    const quality = await identityVerificationService.validateDocumentQuality(selfieTemp);
     if (!quality.valid) {
       return res.status(400).json({
         error: 'Qualité insuffisante du selfie',
@@ -212,7 +218,7 @@ exports.uploadSelfie = async (req, res) => {
     }
 
     // ===== UTILISER LE SERVICE POUR DÉTECTER LE VISAGE ET LIVENESS =====
-    const faceDetection = await faceMatchingService.detectFace(req.file.path);
+    const faceDetection = await faceMatchingService.detectFace(selfieTemp);
     if (!faceDetection.detected) {
       return res.status(400).json({
         error: 'Aucun visage détecté dans le selfie. Veuillez réessayer.'
@@ -228,10 +234,7 @@ exports.uploadSelfie = async (req, res) => {
     const selfieFilePath = path.join(userSelfieDir, filename);
 
     // Convertir en PNG
-    await sharp(req.file.path).png().toFile(selfieFilePath);
-
-    // Supprimer le fichier temporaire
-    await fs.unlink(req.file.path);
+    await sharp(selfieTemp).png().toFile(selfieFilePath);
 
     // Chemin public à renvoyer lors de la soumission (voir services/kycFiles.js)
     const relativePath = toPublicPath(userId, KYC_FILE_KIND.SELFIE, filename);
@@ -247,8 +250,9 @@ exports.uploadSelfie = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[identityVerificationController]', error);
     return sendServerError(res, error, 'identityVerificationController.uploadSelfie');
+  } finally {
+    await removeTempUploads(uploaded);
   }
 };
 
@@ -455,7 +459,6 @@ exports.submitIdentityVerification = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('[identityVerificationController]', error);
     return sendServerError(res, error, 'identityVerificationController.submitIdentityVerification');
   }
 };
@@ -482,7 +485,6 @@ exports.getVerificationStatus = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[identityVerificationController]', error);
     return sendServerError(res, error, 'identityVerificationController.getVerificationStatus');
   }
 };

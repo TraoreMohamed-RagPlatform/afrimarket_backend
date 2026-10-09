@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendEmail } = require('../utils/emailService');
 const { sendServerError } = require('../utils/httpErrors');
+const { escapeHtml } = require('../utils/html');
 
 const prisma = new PrismaClient();
 
@@ -183,11 +184,11 @@ const updateListing = async (req, res) => {
               <h1>🔄 Annonce mise à jour</h1>
             </div>
             <div style="padding: 20px; background: #f9f9f9; margin: 20px 0; border-left: 4px solid #9C27B0;">
-              <p>Bonjour ${user.username},</p>
-              <p>Votre annonce <strong>${listing.title}</strong> a été mise à jour avec succès.</p>
+              <p>Bonjour ${escapeHtml(user.username)},</p>
+              <p>Votre annonce <strong>${escapeHtml(listing.title)}</strong> a été mise à jour avec succès.</p>
               <p><strong>Modifications:</strong></p>
               <ul>
-                ${updatedFields.map(field => `<li>${field}</li>`).join('')}
+                ${updatedFields.map((field) => `<li>${escapeHtml(field)}</li>`).join('')}
               </ul>
               <p>Les acheteurs verront les changements immédiatement.</p>
             </div>
@@ -285,12 +286,12 @@ const markAsSold = async (req, res) => {
             <h1>🎉 Annonce vendue!</h1>
           </div>
           <div style="padding: 20px; background: #f9f9f9; margin: 20px 0; border-left: 4px solid #FF9800;">
-            <p>Félicitations ${listing.user.username}!</p>
-            <p>Votre annonce <strong>${listing.title}</strong> a été vendue avec succès! 🎉</p>
+            <p>Félicitations ${escapeHtml(listing.user.username)}!</p>
+            <p>Votre annonce <strong>${escapeHtml(listing.title)}</strong> a été vendue avec succès! 🎉</p>
             <p><strong>Informations:</strong></p>
             <ul>
-              <li>Prix de vente: <strong>${listing.price} DH</strong></li>
-              <li>Acheteur: <strong>${buyerName || 'Non spécifié'}</strong></li>
+              <li>Prix de vente: <strong>${escapeHtml(listing.price)} DH</strong></li>
+              <li>Acheteur: <strong>${escapeHtml(buyerName || 'Non spécifié')}</strong></li>
               <li>Date de vente: ${new Date().toLocaleDateString('fr-FR')}</li>
             </ul>
             <p>Merci d'avoir utilisé AfriMarket. Bonne transaction! 🤝</p>

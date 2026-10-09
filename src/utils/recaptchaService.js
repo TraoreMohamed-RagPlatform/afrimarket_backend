@@ -7,8 +7,8 @@ const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify';
 class RecaptchaService {
   static async verifyToken(token) {
     try {
-      if (!token) {
-        return { success: false, error: 'No token provided' };
+      if (typeof token !== 'string' || token.length === 0 || token.length > 4096) {
+        return { success: false, error: 'reCAPTCHA token is required' };
       }
 
       const response = await axios.post(RECAPTCHA_VERIFY_URL, null, {
@@ -30,7 +30,7 @@ class RecaptchaService {
 
       // reCAPTCHA v3 : score 0.0 = bot, 1.0 = human
       // Seuil recommandé : 0.5
-      if (score < 0.5) {
+      if (typeof score !== 'number' || score < 0.5) {
         return {
           success: false,
           score,

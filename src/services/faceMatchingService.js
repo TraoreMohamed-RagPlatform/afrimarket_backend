@@ -46,9 +46,10 @@ exports.detectFace = async (imagePath) => {
 
     return response;
   } catch (error) {
+    console.error('[faceMatchingService]', error);
     return {
       detected: false,
-      error: `Erreur lors de la détection du visage: ${error.message}`
+      error: 'Erreur lors de la détection du visage'
     };
   }
 };
@@ -95,10 +96,11 @@ exports.compareFaces = async (selfiePath, documentImagePath) => {
       }
     };
   } catch (error) {
+    console.error('[faceMatchingService]', error);
     return {
       similar: false,
       score: 0,
-      error: `Erreur lors de la comparaison: ${error.message}`
+      error: 'Erreur lors de la comparaison'
     };
   }
 };
@@ -125,10 +127,11 @@ exports.detectLiveness = async (imagePath) => {
 
     return livenessResponse;
   } catch (error) {
+    console.error('[faceMatchingService]', error);
     return {
       isLive: false,
       confidence: 0,
-      error: `Erreur lors de la détection de liveness: ${error.message}`
+      error: 'Erreur lors de la détection de liveness'
     };
   }
 };
@@ -136,7 +139,7 @@ exports.detectLiveness = async (imagePath) => {
 // =============================================
 // 4. METTRE À JOUR LE SCORE DE SIMILARITÉ EN BD
 // =============================================
-exports.updateFaceSimilarityScore = async (verificationId, faceScore, livenessScore, details = {}) => {
+exports.updateFaceSimilarityScore = async (verificationId, faceScore, livenessScore, _details = {}) => {
   try {
     const updated = await prisma.identityVerification.update({
       where: { id: verificationId },
@@ -153,9 +156,10 @@ exports.updateFaceSimilarityScore = async (verificationId, faceScore, livenessSc
       message: 'Score de similarité faciale mis à jour'
     };
   } catch (error) {
+    console.error('[faceMatchingService]', error);
     return {
       success: false,
-      error: `Erreur lors de la mise à jour du score: ${error.message}`
+      error: 'Erreur lors de la mise à jour du score'
     };
   }
 };
@@ -215,10 +219,11 @@ exports.performFullFaceVerification = async (verificationId, selfiePath, documen
       message: `Vérification faciale complétée. Score: ${overallScore}%`
     };
   } catch (error) {
+    console.error('[faceMatchingService]', error);
     return {
       passed: false,
       overallScore: 0,
-      error: `Erreur lors de la vérification faciale complète: ${error.message}`
+      error: 'Erreur lors de la vérification faciale complète'
     };
   }
 };
@@ -229,101 +234,87 @@ exports.performFullFaceVerification = async (verificationId, selfiePath, documen
 
 // Face++ (Megvii) - Integration
 async function detectFaceWithFacePlusPlus(base64Image) {
-  try {
-    const response = await axios.post(
-      'https://api-us.faceplusplus.com/facepp/v3/detect',
-      `image_base64=${base64Image}&return_attributes=quality,liveness`,
-      {
-        auth: {
-          username: FACE_API_CONFIG.apiKey,
-          password: FACE_API_CONFIG.apiSecret
-        }
+  const response = await axios.post(
+    'https://api-us.faceplusplus.com/facepp/v3/detect',
+    `image_base64=${base64Image}&return_attributes=quality,liveness`,
+    {
+      auth: {
+        username: FACE_API_CONFIG.apiKey,
+        password: FACE_API_CONFIG.apiSecret
       }
-    );
-
-    if (response.data.faces && response.data.faces.length > 0) {
-      return {
-        detected: true,
-        faceCount: response.data.faces.length,
-        quality: response.data.faces[0].attributes?.quality || 'unknown',
-        confidence: response.data.faces[0].face_confidence || 0.9
-      };
     }
+  );
 
-    return { detected: false, faceCount: 0 };
-  } catch (error) {
-    throw error;
+  if (response.data.faces && response.data.faces.length > 0) {
+    return {
+      detected: true,
+      faceCount: response.data.faces.length,
+      quality: response.data.faces[0].attributes?.quality || 'unknown',
+      confidence: response.data.faces[0].face_confidence || 0
+    };
   }
+
+  return { detected: false, faceCount: 0 };
 }
 
 async function detectLivenessWithFacePlusPlus(base64Image) {
-  try {
-    const response = await axios.post(
-      'https://api-us.faceplusplus.com/facepp/v3/liveness',
-      `image_base64=${base64Image}`,
-      {
-        auth: {
-          username: FACE_API_CONFIG.apiKey,
-          password: FACE_API_CONFIG.apiSecret
-        }
+  const response = await axios.post(
+    'https://api-us.faceplusplus.com/facepp/v3/liveness',
+    `image_base64=${base64Image}`,
+    {
+      auth: {
+        username: FACE_API_CONFIG.apiKey,
+        password: FACE_API_CONFIG.apiSecret
       }
-    );
+    }
+  );
 
-    return {
-      isLive: response.data.thresholds?.face_liveness > SIMILARITY_THRESHOLDS.LIVENESS_THRESHOLD,
-      confidence: response.data.thresholds?.face_liveness || 0
-    };
-  } catch (error) {
-    throw error;
-  }
+  return {
+    isLive: response.data.thresholds?.face_liveness > SIMILARITY_THRESHOLDS.LIVENESS_THRESHOLD,
+    confidence: response.data.thresholds?.face_liveness || 0
+  };
 }
 
 async function compareFacesAPI(selfiePath, documentPath) {
-  try {
-    const selfieBuffer = await fs.readFile(selfiePath);
-    const docBuffer = await fs.readFile(documentPath);
+  const selfieBuffer = await fs.readFile(selfiePath);
+  const docBuffer = await fs.readFile(documentPath);
 
-    const response = await axios.post(
-      'https://api-us.faceplusplus.com/facepp/v3/compare',
-      `image_base64_1=${selfieBuffer.toString('base64')}&image_base64_2=${docBuffer.toString('base64')}`,
-      {
-        auth: {
-          username: FACE_API_CONFIG.apiKey,
-          password: FACE_API_CONFIG.apiSecret
-        }
+  const response = await axios.post(
+    'https://api-us.faceplusplus.com/facepp/v3/compare',
+    `image_base64_1=${selfieBuffer.toString('base64')}&image_base64_2=${docBuffer.toString('base64')}`,
+    {
+      auth: {
+        username: FACE_API_CONFIG.apiKey,
+        password: FACE_API_CONFIG.apiSecret
       }
-    );
+    }
+  );
 
-    return {
-      similarity: response.data.confidence / 100,
-      confidence: response.data.confidence / 100
-    };
-  } catch (error) {
-    throw error;
-  }
+  return {
+    similarity: response.data.confidence / 100,
+    confidence: response.data.confidence / 100
+  };
 }
 
-// Google Vision API - Placeholder
-async function detectFaceWithGoogle(base64Image) {
-  // À implémenter avec @google-cloud/vision
+// Google Vision : non implémenté (fermé par défaut).
+function detectFaceWithGoogle(_base64Image) {
   return { detected: false, error: 'Google Vision non configuré' };
 }
 
 // Google Vision ne fournit pas de détection du vivant : non implémenté.
 // Fermé par défaut : on ne déclare jamais « vivant » sans analyse réelle.
-async function detectLivenessWithGoogle(_base64Image) {
+function detectLivenessWithGoogle(_base64Image) {
   return { isLive: false, confidence: 0, method: 'not_implemented' };
 }
 
-// AWS Rekognition - Placeholder
-async function detectFaceWithAWS(base64Image) {
-  // À implémenter avec @aws-sdk/client-rekognition
+// AWS Rekognition : non implémenté (fermé par défaut).
+function detectFaceWithAWS(_base64Image) {
   return { detected: false, error: 'AWS Rekognition non configuré' };
 }
 
 // Aucun fournisseur de détection du vivant configuré : non implémenté.
 // Fermé par défaut : la demande partira en revue manuelle.
-async function analyzeImageMetadata(_imagePath) {
+function analyzeImageMetadata(_imagePath) {
   return { isLive: false, confidence: 0, method: 'not_implemented' };
 }
 

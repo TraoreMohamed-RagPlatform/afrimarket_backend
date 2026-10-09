@@ -80,7 +80,7 @@ exports.getVerificationById = async (req, res) => {
     // Récupérer les infos de l'utilisateur
     const user = await prisma.user.findUnique({
       where: { id: verification.userId },
-      select: { email: true, phone: true, name: true }
+      select: { email: true, phone: true, fullName: true }
     });
 
     return res.status(200).json({
@@ -105,7 +105,7 @@ exports.getVerificationById = async (req, res) => {
 exports.approveVerification = async (req, res) => {
   try {
     const { verificationId } = req.params;
-    const adminId = req.userId; // Admin qui approuve
+    const adminId = req.user.userId; // Admin qui approuve
     const { notes } = req.body;
 
     // Vérifier que la demande existe
@@ -136,7 +136,7 @@ exports.approveVerification = async (req, res) => {
     // Notifier l'utilisateur
     const user = await prisma.user.findUnique({
       where: { id: verification.userId },
-      select: { email: true, phone: true, name: true }
+      select: { email: true, phone: true, fullName: true }
     });
 
     if (user) {
@@ -144,7 +144,7 @@ exports.approveVerification = async (req, res) => {
         verificationId,
         'VERIFIED',
         user.email,
-        { userId: verification.userId, name: user.name }
+        { userId: verification.userId, name: user.fullName }
       );
     }
 
@@ -172,7 +172,7 @@ exports.approveVerification = async (req, res) => {
 exports.rejectVerification = async (req, res) => {
   try {
     const { verificationId } = req.params;
-    const adminId = req.userId; // Admin qui rejette
+    const adminId = req.user.userId; // Admin qui rejette
     const { rejectionReason, rejectionDetails } = req.body;
 
     // Vérifier les champs requis
@@ -211,7 +211,7 @@ exports.rejectVerification = async (req, res) => {
     // Notifier l'utilisateur
     const user = await prisma.user.findUnique({
       where: { id: verification.userId },
-      select: { email: true, phone: true, name: true }
+      select: { email: true, phone: true, fullName: true }
     });
 
     if (user) {
@@ -221,7 +221,7 @@ exports.rejectVerification = async (req, res) => {
         user.email,
         {
           userId: verification.userId,
-          name: user.name,
+          name: user.fullName,
           rejectionReason: rejectionReason
         }
       );

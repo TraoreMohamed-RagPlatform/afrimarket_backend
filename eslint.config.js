@@ -23,6 +23,8 @@ module.exports = [
       ],
       'require-await': 'error',
       eqeqeq: ['error', 'always'],
+      // Interdit d'utiliser une variable avant sa déclaration (plantage au démarrage).
+      'no-use-before-define': ['error', { functions: false }],
       'no-var': 'error',
       'prefer-const': 'error',
       // process.exit est réservé au démarrage (configuration invalide).

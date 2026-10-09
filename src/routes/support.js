@@ -1,8 +1,12 @@
 // src/routes/support.js
 const express = require('express');
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 const SupportController = require('../controllers/supportController');
 const authMiddleware = require('../middleware/authMiddleware');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
 // Contact Form Routes
 router.post('/contact-form', SupportController.createContactForm);

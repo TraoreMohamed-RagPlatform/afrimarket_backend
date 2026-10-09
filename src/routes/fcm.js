@@ -1,8 +1,12 @@
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
 const authMiddleware = require('../middleware/authMiddleware');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 const prisma = new PrismaClient();
 
 // ========================================

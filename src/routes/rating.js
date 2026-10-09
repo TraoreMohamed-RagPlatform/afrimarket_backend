@@ -2,8 +2,12 @@ const express = require('express');
 const { body, param, query } = require('express-validator');
 const ratingController = require('../controllers/ratingController');
 const authMiddleware = require('../middleware/authMiddleware');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 
 // ========================================
 // POST /api/ratings - CREATE RATING

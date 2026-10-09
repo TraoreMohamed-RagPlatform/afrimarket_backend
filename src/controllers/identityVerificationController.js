@@ -10,13 +10,19 @@ const faceMatchingService = require('../services/faceMatchingService');
 const notificationService = require('../services/notificationService');
 const { decideKycOutcome, KYC_OUTCOME } = require('../services/kycDecision');
 const { sendServerError } = require('../utils/httpErrors');
+const {
+  KYC_UPLOAD_ROOT,
+  KYC_FILE_KIND,
+  getKycDir,
+  toPublicPath,
+  resolveKycFile,
+} = require('../services/kycFiles');
 
 const prisma = new PrismaClient();
 
 // =============================================
 // CONSTANTES
 // =============================================
-const UPLOAD_DIR = path.join(__dirname, '../../uploads/identity');
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png'];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const MIN_WIDTH = 800;
@@ -27,7 +33,7 @@ const MIN_HEIGHT = 600;
 // =============================================
 const initializeUploadDir = async () => {
   try {
-    await fs.mkdir(UPLOAD_DIR, { recursive: true });
+    await fs.mkdir(KYC_UPLOAD_ROOT, { recursive: true });
   } catch (error) {
     console.error('Erreur lors de la création du dossier uploads:', error);
   }
@@ -134,7 +140,7 @@ exports.uploadIdentityDocuments = async (req, res) => {
     }
 
     // Créer les dossiers utilisateur
-    const userDocDir = path.join(UPLOAD_DIR, userId, 'documents');
+    const userDocDir = getKycDir(userId, KYC_FILE_KIND.DOCUMENT);
     await fs.mkdir(userDocDir, { recursive: true });
 
     // Renommer et sauvegarder les fichiers avec UUID
@@ -152,9 +158,9 @@ exports.uploadIdentityDocuments = async (req, res) => {
     await fs.unlink(frontFile.path);
     await fs.unlink(backFile.path);
 
-    // Retourner les chemins relatifs
-    const frontRelativePath = path.relative(path.join(__dirname, '../../'), frontPath);
-    const backRelativePath = path.relative(path.join(__dirname, '../../'), backPath);
+    // Chemins publics à renvoyer lors de la soumission (voir services/kycFiles.js)
+    const frontRelativePath = toPublicPath(userId, KYC_FILE_KIND.DOCUMENT, frontFilename);
+    const backRelativePath = toPublicPath(userId, KYC_FILE_KIND.DOCUMENT, backFilename);
 
     return res.status(200).json({
       message: 'Documents uploadés avec succès',
@@ -214,7 +220,7 @@ exports.uploadSelfie = async (req, res) => {
     }
 
     // Créer le dossier utilisateur
-    const userSelfieDir = path.join(UPLOAD_DIR, userId, 'selfie');
+    const userSelfieDir = getKycDir(userId, KYC_FILE_KIND.SELFIE);
     await fs.mkdir(userSelfieDir, { recursive: true });
 
     // Renommer et sauvegarder le fichier
@@ -227,8 +233,8 @@ exports.uploadSelfie = async (req, res) => {
     // Supprimer le fichier temporaire
     await fs.unlink(req.file.path);
 
-    // Retourner le chemin relatif
-    const relativePath = path.relative(path.join(__dirname, '../../'), selfieFilePath);
+    // Chemin public à renvoyer lors de la soumission (voir services/kycFiles.js)
+    const relativePath = toPublicPath(userId, KYC_FILE_KIND.SELFIE, filename);
 
     return res.status(200).json({
       message: 'Selfie uploadé avec succès',
@@ -278,6 +284,20 @@ exports.submitIdentityVerification = async (req, res) => {
       });
     }
 
+    // Les chemins envoyés par le client ne sont jamais utilisés tels quels :
+    // ils doivent désigner des fichiers uploadés par CET utilisateur.
+    const [frontFile, backFile, selfieFile] = await Promise.all([
+      resolveKycFile(userId, KYC_FILE_KIND.DOCUMENT, frontImage),
+      resolveKycFile(userId, KYC_FILE_KIND.DOCUMENT, backImage),
+      resolveKycFile(userId, KYC_FILE_KIND.SELFIE, selfiePhoto),
+    ]);
+
+    if (!frontFile || !backFile || !selfieFile || frontFile.absolutePath === backFile.absolutePath) {
+      return res.status(400).json({
+        error: 'Fichiers invalides : uploadez d\'abord vos documents et votre selfie'
+      });
+    }
+
     // Vérifier qu'il n'y a pas déjà une vérification en cours
     const existingVerification = await prisma.identityVerification.findUnique({
       where: { userId }
@@ -298,9 +318,9 @@ exports.submitIdentityVerification = async (req, res) => {
         documentType,
         documentNumber,
         documentCountry,
-        documentFrontImage: frontImage,
-        documentBackImage: backImage,
-        selfiePhoto,
+        documentFrontImage: frontFile.publicPath,
+        documentBackImage: backFile.publicPath,
+        selfiePhoto: selfieFile.publicPath,
         status: 'PENDING',
         verificationMethod: 'MANUAL',
         createdAt: new Date()
@@ -312,8 +332,8 @@ exports.submitIdentityVerification = async (req, res) => {
     // =====================
     const faceVerification = await faceMatchingService.performFullFaceVerification(
       verificationRecord.id,
-      selfiePhoto,
-      frontImage
+      selfieFile.absolutePath,
+      frontFile.absolutePath
     );
 
     // =====================

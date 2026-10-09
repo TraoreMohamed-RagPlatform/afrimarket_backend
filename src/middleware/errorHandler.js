@@ -1,5 +1,7 @@
 const multer = require('multer');
 
+const { sanitizeForLog } = require('../utils/logSafe');
+
 /**
  * Dernier middleware de l'application.
  *
@@ -27,7 +29,9 @@ const errorHandler = (err, req, res, next) => {
     return res.status(400).json({ error: 'Invalid upload', code: err.code });
   }
 
-  console.error(`[${req.method} ${req.originalUrl}]`, err);
+  // Chaîne de format fixe : l'URL du client n'est jamais interprétée comme
+  // un format (CWE-134) et elle est nettoyée avant d'être journalisée (CWE-117).
+  console.error('Unhandled error on %s %s', req.method, sanitizeForLog(req.originalUrl), err);
   return res.status(500).json({ error: 'Internal server error' });
 };
 

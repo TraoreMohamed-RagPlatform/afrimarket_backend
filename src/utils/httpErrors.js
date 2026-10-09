@@ -7,7 +7,8 @@
  * @param {string} [context] Où l'erreur s'est produite, pour les journaux.
  */
 const sendServerError = (res, error, context = 'request') => {
-  console.error(`[${context}]`, error);
+  // Chaîne de format fixe : le contexte n'est jamais interprété comme un format.
+  console.error('[%s]', context, error);
   return res.status(500).json({ error: 'Internal server error' });
 };
 

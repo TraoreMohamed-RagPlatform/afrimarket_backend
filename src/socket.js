@@ -1,15 +1,16 @@
 const { Server } = require('socket.io');
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
 
 // Store des connexions utilisateurs: { userId: socketId }
 const userSockets = {};
 
-const initializeSocket = (server) => {
+/**
+ * @param {import('http').Server} server
+ * @param {{ corsOrigins?: string[] }} [options] Origines web autorisées.
+ */
+const initializeSocket = (server, { corsOrigins = [] } = {}) => {
   const io = new Server(server, {
     cors: {
-      origin: '*',
+      origin: corsOrigins,
       methods: ['GET', 'POST'],
     },
   });
@@ -81,17 +82,6 @@ const initializeSocket = (server) => {
   return io;
 };
 
-// Fonction pour envoyer une notification à un user spécifique
-const sendNotificationToUser = (userId, event, data) => {
-  const socketId = userSockets[userId];
-  if (socketId) {
-    // À implémenter: récupérer io depuis socket.js
-    console.log(`📬 Notification envoyée à ${userId}: ${event}`);
-  }
-};
-
 module.exports = {
   initializeSocket,
-  sendNotificationToUser,
-  userSockets,
 };

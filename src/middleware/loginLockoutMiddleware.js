@@ -16,7 +16,9 @@ const checkLoginLockout = (req, res, next) => {
 
   const lockoutData = failedLoginAttempts.get(email);
 
-  if (lockoutData) {
+  // Bug corrigé : avant, le compteur était effacé dès la 2e tentative
+  // (lockedAt vide), si bien que le verrouillage ne se déclenchait jamais.
+  if (lockoutData?.lockedAt) {
     const timePassed = Date.now() - lockoutData.lockedAt;
 
     if (timePassed < LOCKOUT_TIME) {
@@ -49,7 +51,8 @@ const recordFailedLogin = (email) => {
 
   if (data.attempts >= MAX_LOGIN_ATTEMPTS) {
     data.lockedAt = Date.now();
-    console.log(`🔒 Compte ${email} verrouillé après ${MAX_LOGIN_ATTEMPTS} tentatives`);
+    // L'e-mail n'est pas journalisé (donnée personnelle, injection de journal).
+    console.warn('🔒 Compte verrouillé après %d tentatives', MAX_LOGIN_ATTEMPTS);
   }
 };
 
@@ -59,7 +62,6 @@ const recordFailedLogin = (email) => {
 const resetLoginAttempts = (email) => {
   if (failedLoginAttempts.has(email)) {
     failedLoginAttempts.delete(email);
-    console.log(`✅ Tentatives de connexion réinitialisées pour ${email}`);
   }
 };
 

@@ -9,14 +9,8 @@ class SupportController {
     try {
       const { name, email, subject, message, category, recaptchaToken } = req.body;
 
-      // Vérifier reCAPTCHA v3
-      if (!recaptchaToken) {
-        return res.status(400).json({
-          success: false,
-          message: 'reCAPTCHA token is required',
-        });
-      }
-
+      // Vérifier reCAPTCHA v3. La vérification est toujours exécutée :
+      // le service refuse lui-même un jeton absent (pas de contournement possible).
       const recaptchaResult = await RecaptchaService.verifyToken(recaptchaToken);
 
       if (!recaptchaResult.success) {

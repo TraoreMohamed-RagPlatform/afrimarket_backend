@@ -37,11 +37,12 @@ class AdminReportController {
   // Lister les rapports
   static async getReports(req, res) {
     try {
-      const { page = 1, limit = 10, type, generatedBy, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+      const { page, limit, type, generatedBy, sortBy, sortOrder } = req.query;
 
+      // Valeurs validées et bornées par le service (liste blanche de tri).
       const reports = await AdminReportService.getReports(
         { type, generatedBy },
-        { page: parseInt(page), limit: parseInt(limit), sortBy, sortOrder }
+        { page, limit, sortBy, sortOrder }
       );
 
       res.status(200).json({

@@ -107,7 +107,6 @@ const advancedSearch = async (req, res) => {
       where: where.AND.length > 0 ? { AND: where.AND } : {}
     });
 
-    console.log(`🔍 Recherche: q="${q}", catégorie="${category}", prix=${minPriceNum}-${maxPriceNum}, résultats=${filteredListings.length}`);
 
     return res.status(200).json({
       message: 'Recherche effectuée avec succès',

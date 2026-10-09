@@ -34,7 +34,8 @@ const sendSmsOTP = async (phoneNumber, otp, type = 'verification') => {
       }
     );
 
-    console.log('✅ SMS OTP envoyé à', phoneNumber);
+    // Aucune donnée personnelle dans les journaux (numéro, e-mail).
+    console.log('✅ SMS OTP envoyé');
     return { success: true, data: response.data };
   } catch (error) {
     console.error('❌ Erreur envoi SMS:', error.response?.data || error.message);
@@ -81,7 +82,7 @@ const sendEmailOTP = async (email, otp, emailService) => {
     `;
 
     await emailService.sendEmail(email, subject, htmlContent);
-    console.log('✅ Email OTP envoyé à', email);
+    console.log('✅ Email OTP envoyé');
     return { success: true };
   } catch (error) {
     console.error('❌ Erreur envoi email:', error.message);

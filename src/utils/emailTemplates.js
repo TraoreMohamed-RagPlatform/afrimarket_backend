@@ -1,20 +1,20 @@
 const fs = require('fs');
 const path = require('path');
 const { sendEmail } = require('./emailService');
+const { escapeHtml } = require('./html');
 
 // Fonction pour charger et remplir un template
 const loadTemplate = (templateName, variables = {}) => {
   try {
     const templatePath = path.join(__dirname, '..', 'templates', `${templateName}.html`);
-    let template = fs.readFileSync(templatePath, 'utf-8');
+    const template = fs.readFileSync(templatePath, 'utf-8');
 
-    // Remplacer les variables {{key}} par les valeurs
-    Object.keys(variables).forEach(key => {
-      const regex = new RegExp(`{{${key}}}`, 'g');
-      template = template.replace(regex, variables[key] || '');
-    });
-
-    return template;
+    // Remplacer les variables {{key}} par leurs valeurs, toujours échappées :
+    // elles contiennent des saisies d'utilisateurs (noms, titres, messages).
+    // Une variable inconnue est remplacée par une chaîne vide.
+    return template.replace(/{{(\w+)}}/g, (_match, key) =>
+      Object.hasOwn(variables, key) ? escapeHtml(variables[key]) : '',
+    );
   } catch (error) {
     console.error(`❌ Erreur chargement template ${templateName}:`, error.message);
     throw error;

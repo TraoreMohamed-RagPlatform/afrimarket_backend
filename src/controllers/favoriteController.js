@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 // ========================================
 const addToFavorites = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { listingId } = req.body;
 
     if (!listingId) {
@@ -69,7 +69,7 @@ const addToFavorites = async (req, res) => {
 // ========================================
 const removeFromFavorites = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { listingId } = req.params;
 
     if (!listingId) {
@@ -111,7 +111,7 @@ const removeFromFavorites = async (req, res) => {
 // ========================================
 const getMyFavorites = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
@@ -175,7 +175,7 @@ const getMyFavorites = async (req, res) => {
 // ========================================
 const checkFavorite = async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { listingId } = req.params;
 
     if (!listingId) {

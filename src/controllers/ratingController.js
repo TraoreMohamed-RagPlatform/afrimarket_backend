@@ -65,7 +65,7 @@ const createRating = async (req, res) => {
       await sendRatingReceivedEmail(
         listing.user,
         { ...rating, listing },
-        req.user.username
+        rating.user.username
       );
     } catch (emailError) {
       console.warn('⚠️ Email non envoyé, mais notation créée:', emailError.message);

@@ -7,10 +7,12 @@ jest.mock('../lib/prisma', () => mockPrisma);
 
 const authMiddleware = require('../middleware/authMiddleware');
 const requireRole = require('../middleware/requireRole');
+const { createApiLimiter } = require('../middleware/apiLimiter');
 
 const buildApp = () => {
   const app = express();
-  app.get('/admin', authMiddleware, requireRole('ADMIN'), (req, res) =>
+  // Même chaîne qu'en production : limiteur, authentification, rôle.
+  app.get('/admin', createApiLimiter(), authMiddleware, requireRole('ADMIN'), (req, res) =>
     res.json({ ok: true, role: req.user.role }),
   );
   // Gestionnaire d'erreurs minimal : ne divulgue rien.

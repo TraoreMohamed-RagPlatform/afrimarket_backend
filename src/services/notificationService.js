@@ -1,7 +1,4 @@
 const nodemailer = require('nodemailer');
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
 
 // =============================================
 // CONFIGURATION - EMAIL & SMS
@@ -78,6 +75,7 @@ exports.sendUserEmail = async (userId, userEmail, notificationType, data = {}) =
       message: `Email envoyé à ${userEmail}`
     };
   } catch (error) {
+    console.error('[notificationService]', error);
     // Enregistrer l'erreur en BD
     await exports.logNotification(
       userId,
@@ -90,7 +88,7 @@ exports.sendUserEmail = async (userId, userEmail, notificationType, data = {}) =
 
     return {
       sent: false,
-      error: `Erreur lors de l'envoi d'email: ${error.message}`
+      error: 'Erreur lors de l\'envoi d\'email'
     };
   }
 };
@@ -128,9 +126,10 @@ exports.sendAdminEmail = async (notificationType, data = {}) => {
       message: `Emails envoyés à ${adminEmails.length} administrateur(s)`
     };
   } catch (error) {
+    console.error('[notificationService]', error);
     return {
       sent: false,
-      error: `Erreur lors de l'envoi d'email admin: ${error.message}`
+      error: 'Erreur lors de l\'envoi d\'email admin'
     };
   }
 };
@@ -177,6 +176,7 @@ exports.sendSMS = async (userId, userPhone, notificationType, data = {}) => {
       message: `SMS envoyé à ${userPhone}`
     };
   } catch (error) {
+    console.error('[notificationService]', error);
     // Enregistrer l'erreur en BD
     await exports.logNotification(
       userId,
@@ -189,7 +189,7 @@ exports.sendSMS = async (userId, userPhone, notificationType, data = {}) => {
 
     return {
       sent: false,
-      error: `Erreur lors de l'envoi de SMS: ${error.message}`
+      error: 'Erreur lors de l\'envoi de SMS'
     };
   }
 };
@@ -197,7 +197,7 @@ exports.sendSMS = async (userId, userPhone, notificationType, data = {}) => {
 // =============================================
 // 4. ENREGISTRER LES NOTIFICATIONS EN BD
 // =============================================
-exports.logNotification = async (
+exports.logNotification = (
   userId,
   channel,
   notificationType,
@@ -235,7 +235,7 @@ exports.logNotification = async (
     return { logged: true };
   } catch (error) {
     console.error('Erreur lors de l\'enregistrement de la notification:', error);
-    return { logged: false, error: error.message };
+    return { logged: false, error: 'Operation failed' };
   }
 };
 
@@ -269,9 +269,10 @@ exports.sendCompleteNotification = async (
       message: 'Notifications envoyées'
     };
   } catch (error) {
+    console.error('[notificationService]', error);
     return {
       sent: false,
-      error: `Erreur lors de l'envoi complet: ${error.message}`
+      error: 'Erreur lors de l\'envoi complet'
     };
   }
 };
@@ -317,9 +318,10 @@ exports.notifyVerificationCompleted = async (verificationId, status, userEmail, 
 
     return emailResult;
   } catch (error) {
+    console.error('[notificationService]', error);
     return {
       sent: false,
-      error: `Erreur lors de la notification: ${error.message}`
+      error: 'Erreur lors de la notification'
     };
   }
 };

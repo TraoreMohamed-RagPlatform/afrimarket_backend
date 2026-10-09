@@ -1,6 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
-const { validationResult } = require('express-validator');
 const { sendRatingReceivedEmail } = require('../utils/emailTemplates');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -78,8 +78,7 @@ const createRating = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error creating rating:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    return sendServerError(res, error, 'ratingController.createRating');
   }
 };
 
@@ -122,8 +121,7 @@ const updateRating = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error updating rating:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    return sendServerError(res, error, 'ratingController.updateRating');
   }
 };
 
@@ -156,8 +154,7 @@ const deleteRating = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error deleting rating:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    return sendServerError(res, error, 'ratingController.deleteRating');
   }
 };
 
@@ -223,8 +220,7 @@ const getRatingsBySeller = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching seller ratings:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    return sendServerError(res, error, 'ratingController.getRatingsBySeller');
   }
 };
 
@@ -277,8 +273,7 @@ const getRatingsForListing = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching listing ratings:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    return sendServerError(res, error, 'ratingController.getRatingsForListing');
   }
 };
 
@@ -339,8 +334,7 @@ const getMyRatings = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching my ratings:', error);
-    return res.status(500).json({ error: 'Erreur serveur' });
+    return sendServerError(res, error, 'ratingController.getMyRatings');
   }
 };
 

@@ -1,46 +1,46 @@
-const multer = require('multer');
+const fs = require('fs');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
+const multer = require('multer');
 
-// Configuration du stockage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Les fichiers temporaires vont dans uploads/temp/
-    const tempDir = path.join(__dirname, '../../uploads/temp');
-    cb(null, tempDir);
-  },
-  filename: (req, file, cb) => {
-    // Renommer avec UUID pour éviter les conflits
-    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  }
+const TEMP_DIR = path.join(__dirname, '../../uploads/temp');
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 Mo
+
+// Extension déduite du type accepté, jamais du nom envoyé par le client :
+// un fichier « photo.html » ou « photo.js » ne doit pas garder son extension.
+const EXTENSION_BY_MIME = Object.freeze({
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
 });
 
-// Filtre pour accepter que les images
+fs.mkdirSync(TEMP_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, TEMP_DIR),
+  filename: (req, file, cb) => cb(null, `${randomUUID()}${EXTENSION_BY_MIME[file.mimetype]}`),
+});
+
+// Premier filtre sur le type déclaré. Le contenu réel est revérifié ensuite
+// avec sharp dans le contrôleur (le type déclaré peut mentir).
 const fileFilter = (req, file, cb) => {
-  const allowedMimes = ['image/jpeg', 'image/png'];
-  
-  if (allowedMimes.includes(file.mimetype)) {
+  if (Object.hasOwn(EXTENSION_BY_MIME, file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(`Type de fichier non autorisé: ${file.mimetype}`), false);
+    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
   }
 };
 
-// Configuration de multer
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB
-  }
+  storage,
+  fileFilter,
+  limits: { fileSize: MAX_FILE_SIZE, files: 2 },
 });
 
-// Middleware pour upload de documents (front + back)
+// Pièce d'identité : recto + verso
 exports.uploadDocuments = upload.fields([
   { name: 'frontImage', maxCount: 1 },
-  { name: 'backImage', maxCount: 1 }
+  { name: 'backImage', maxCount: 1 },
 ]);
 
-// Middleware pour upload de selfie
+// Selfie
 exports.uploadSelfie = upload.single('selfiePhoto');

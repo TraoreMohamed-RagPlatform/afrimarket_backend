@@ -1,4 +1,5 @@
 const AdminReportService = require('../utils/adminReportService');
+const { sendServerError } = require('../utils/httpErrors');
 
 class AdminReportController {
   // Créer un rapport personnalisé
@@ -29,10 +30,7 @@ class AdminReportController {
         data: report,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.createReport');
     }
   }
 
@@ -52,10 +50,7 @@ class AdminReportController {
         pagination: reports.pagination,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.getReports');
     }
   }
 
@@ -78,10 +73,7 @@ class AdminReportController {
         data: report,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.getReportById');
     }
   }
 
@@ -104,10 +96,7 @@ class AdminReportController {
         data: report,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.updateReport');
     }
   }
 
@@ -123,10 +112,7 @@ class AdminReportController {
         message: 'Rapport supprimé avec succès',
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.deleteReport');
     }
   }
 
@@ -147,10 +133,7 @@ class AdminReportController {
         data: report,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.generateUsersReport');
     }
   }
 
@@ -171,10 +154,7 @@ class AdminReportController {
         data: report,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.generateListingsReport');
     }
   }
 
@@ -195,10 +175,7 @@ class AdminReportController {
         data: report,
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.generateSupportReport');
     }
   }
 
@@ -256,10 +233,7 @@ class AdminReportController {
       res.setHeader('Content-Disposition', `attachment; filename="rapport_${report.id}.csv"`);
       res.send(csv);
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
+      sendServerError(res, error, 'adminReportController.exportReportCSV');
     }
   }
 }

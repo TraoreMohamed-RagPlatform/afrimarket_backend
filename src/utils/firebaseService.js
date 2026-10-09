@@ -12,6 +12,7 @@ const initializeFirebase = () => {
     try {
       return admin.getApp();
     } catch (error) {
+      console.error('[firebaseService]', error);
       return null;
     }
   }
@@ -69,7 +70,7 @@ const sendPushNotification = async (fcmToken, notification) => {
     return { success: true, messageId: response };
   } catch (error) {
     console.error('❌ Erreur envoi notification:', error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: 'Operation failed' };
   }
 };
 
@@ -107,7 +108,7 @@ const sendPushNotificationBatch = async (fcmTokens, notification) => {
     };
   } catch (error) {
     console.error('❌ Erreur envoi batch notifications:', error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: 'Operation failed' };
   }
 };
 

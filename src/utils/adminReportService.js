@@ -34,7 +34,9 @@ class AdminReportService {
   // Lister les rapports avec filtrage et pagination
   static async getReports(filters = {}, options = {}) {
     try {
-      const { page = 1, limit = 10, type, generatedBy, sortBy = 'createdAt', sortOrder = 'desc' } = options;
+      // Bug corrigé : les filtres étaient passés mais jamais lus.
+      const { type, generatedBy } = filters;
+      const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = options;
       const skip = (page - 1) * limit;
 
       const where = {};

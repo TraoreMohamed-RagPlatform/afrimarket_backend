@@ -1,4 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -60,7 +61,7 @@ const addToFavorites = async (req, res) => {
       favorite,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'favoriteController.addToFavorites');
   }
 };
 
@@ -102,7 +103,7 @@ const removeFromFavorites = async (req, res) => {
 
     res.json({ message: 'Retiré des favoris' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'favoriteController.removeFromFavorites');
   }
 };
 
@@ -166,7 +167,7 @@ const getMyFavorites = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'favoriteController.getMyFavorites');
   }
 };
 
@@ -196,7 +197,7 @@ const checkFavorite = async (req, res) => {
       favorite: favorite || null,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    sendServerError(res, error, 'favoriteController.checkFavorite');
   }
 };
 

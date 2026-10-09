@@ -1,178 +1,170 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
-const authMiddleware = require('../middleware/authMiddleware');
+const { body, param, validationResult } = require('express-validator');
+
+const prisma = require('../lib/prisma');
 const { apiLimiter } = require('../middleware/apiLimiter');
+const authMiddleware = require('../middleware/authMiddleware');
+const { sendServerError } = require('../utils/httpErrors');
 
 const router = express.Router();
 
+// Un token FCM fait environ 160 caractères ; on borne largement.
+const MAX_TOKEN_LENGTH = 4096;
+const MAX_DEVICE_NAME_LENGTH = 100;
+const MAX_PAGE_SIZE = 50;
+
+const rejectInvalid = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+  }
+  return next();
+};
+
+const tokenRule = body('token')
+  .isString()
+  .trim()
+  .isLength({ min: 1, max: MAX_TOKEN_LENGTH })
+  .withMessage('Token FCM invalide');
+
 // Limite commune à toute l'API (voir middleware/apiLimiter.js).
 router.use(apiLimiter);
-const prisma = new PrismaClient();
+router.use(authMiddleware);
 
 // ========================================
-// POST /register-token
+// POST /register-token : enregistrer l'appareil de l'utilisateur
 // ========================================
-router.post('/register-token', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.user?.userId;
+router.post(
+  '/register-token',
+  tokenRule,
+  body('deviceName').optional().isString().trim().isLength({ max: MAX_DEVICE_NAME_LENGTH }),
+  rejectInvalid,
+  async (req, res) => {
+    const { userId } = req.user;
     const { token, deviceName } = req.body;
 
-    if (!token) {
-      return res.status(400).json({ error: 'Token FCM est requis' });
+    try {
+      // Un token appartient à un seul appareil : s'il change de compte,
+      // il est réattribué au nouvel utilisateur.
+      const saved = await prisma.fCMToken.upsert({
+        where: { token },
+        create: { token, userId, deviceName: deviceName || null },
+        update: { userId, deviceName: deviceName || null, active: true },
+        select: { id: true, deviceName: true, createdAt: true },
+      });
+      return res.status(201).json({ message: 'Token FCM enregistré', token: saved });
+    } catch (error) {
+      return sendServerError(res, error, 'fcm.register-token');
     }
+  },
+);
 
-    console.log(`✅ Token FCM reçu pour l'utilisateur ${userId}`);
-    
-    // Pour maintenant, on stocke juste en mémoire (sera dans DB plus tard)
-    // Le vrai stockage se fera avec une table FCMToken après la migration Prisma
-    
-    res.json({
-      message: 'Token FCM enregistré avec succès',
-      token: token,
-      deviceName: deviceName || 'Unknown Device',
-      userId: userId,
-      status: 'stored_in_memory'
+// ========================================
+// POST /remove-token : désinscrire un appareil (déconnexion)
+// ========================================
+router.post('/remove-token', tokenRule, rejectInvalid, async (req, res) => {
+  const { userId } = req.user;
+
+  try {
+    // Filtre sur userId : on ne peut supprimer que ses propres tokens.
+    const { count } = await prisma.fCMToken.deleteMany({
+      where: { token: req.body.token, userId },
     });
+    return res.json({ message: 'Token supprimé', removed: count });
   } catch (error) {
-    console.error('❌ Erreur enregistrement token FCM:', error.message);
-    res.status(500).json({ error: error.message });
+    return sendServerError(res, error, 'fcm.remove-token');
   }
 });
 
 // ========================================
-// POST /remove-token
+// GET /my-tokens : appareils enregistrés de l'utilisateur
 // ========================================
-router.post('/remove-token', authMiddleware, async (req, res) => {
+router.get('/my-tokens', async (req, res) => {
+  const { userId } = req.user;
+
   try {
-    const userId = req.user?.userId;
-    const { token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({ error: 'Token est requis' });
-    }
-
-    res.json({ message: 'Token supprimé avec succès' });
+    const tokens = await prisma.fCMToken.findMany({
+      where: { userId, active: true },
+      // La valeur du token n'est jamais renvoyée : elle permet d'envoyer
+      // des notifications à l'appareil.
+      select: { id: true, deviceName: true, createdAt: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return res.json({ count: tokens.length, tokens });
   } catch (error) {
-    console.error('❌ Erreur suppression token:', error.message);
-    res.status(500).json({ error: error.message });
+    return sendServerError(res, error, 'fcm.my-tokens');
   }
 });
 
 // ========================================
-// GET /my-tokens
+// GET /history : historique paginé des notifications
 // ========================================
-router.get('/my-tokens', authMiddleware, async (req, res) => {
+router.get('/history', async (req, res) => {
+  const { userId } = req.user;
+  const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), MAX_PAGE_SIZE);
+
   try {
-    const userId = req.user?.userId;
+    const [notifications, total] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId },
+        select: { id: true, type: true, title: true, message: true, read: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.notification.count({ where: { userId } }),
+    ]);
 
-    // Pour maintenant, retourner un tableau vide
-    // Sera rempli après la migration
-    res.json({
-      count: 0,
-      tokens: [],
-      message: 'Stockage de tokens en développement'
-    });
+    return res.json({ page, limit, total, pages: Math.ceil(total / limit), notifications });
   } catch (error) {
-    console.error('❌ Erreur récupération tokens:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ========================================
-// GET /history
-// ========================================
-router.get('/history', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.user?.userId;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const offset = (page - 1) * limit;
-
-    const notifications = await prisma.notification.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        message: true,
-        read: true,
-        createdAt: true
-      },
-      orderBy: { createdAt: 'desc' },
-      skip: offset,
-      take: limit
-    });
-
-    const total = await prisma.notification.count({
-      where: { userId }
-    });
-
-    res.json({
-      page,
-      limit,
-      total,
-      pages: Math.ceil(total / limit),
-      notifications
-    });
-  } catch (error) {
-    console.error('❌ Erreur récupération historique:', error.message);
-    res.status(500).json({ error: error.message });
+    return sendServerError(res, error, 'fcm.history');
   }
 });
 
 // ========================================
 // PUT /mark-read/:id
 // ========================================
-router.put('/mark-read/:id', authMiddleware, async (req, res) => {
+router.put('/mark-read/:id', param('id').isString().notEmpty(), rejectInvalid, async (req, res) => {
+  const { userId } = req.user;
+
   try {
-    const userId = req.user?.userId;
-    const { id } = req.params;
-
-    const notification = await prisma.notification.findUnique({
-      where: { id }
+    // updateMany avec userId : impossible de modifier la notification d'un autre.
+    const { count } = await prisma.notification.updateMany({
+      where: { id: req.params.id, userId },
+      data: { read: true },
     });
-
-    if (!notification || notification.userId !== userId) {
-      return res.status(403).json({ error: 'Non autorisé' });
+    if (count === 0) {
+      return res.status(404).json({ error: 'Notification introuvable' });
     }
-
-    const updated = await prisma.notification.update({
-      where: { id },
-      data: { read: true }
-    });
-
-    res.json({ message: 'Notification marquée comme lue', notification: updated });
+    return res.json({ message: 'Notification marquée comme lue' });
   } catch (error) {
-    console.error('❌ Erreur mise à jour notification:', error.message);
-    res.status(500).json({ error: error.message });
+    return sendServerError(res, error, 'fcm.mark-read');
   }
 });
 
 // ========================================
 // DELETE /delete-notification/:id
 // ========================================
-router.delete('/delete-notification/:id', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.user?.userId;
-    const { id } = req.params;
+router.delete(
+  '/delete-notification/:id',
+  param('id').isString().notEmpty(),
+  rejectInvalid,
+  async (req, res) => {
+    const { userId } = req.user;
 
-    const notification = await prisma.notification.findUnique({
-      where: { id }
-    });
-
-    if (!notification || notification.userId !== userId) {
-      return res.status(403).json({ error: 'Non autorisé' });
+    try {
+      const { count } = await prisma.notification.deleteMany({
+        where: { id: req.params.id, userId },
+      });
+      if (count === 0) {
+        return res.status(404).json({ error: 'Notification introuvable' });
+      }
+      return res.json({ message: 'Notification supprimée' });
+    } catch (error) {
+      return sendServerError(res, error, 'fcm.delete-notification');
     }
-
-    await prisma.notification.delete({
-      where: { id }
-    });
-
-    res.json({ message: 'Notification supprimée' });
-  } catch (error) {
-    console.error('❌ Erreur suppression notification:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
+  },
+);
 
 module.exports = router;

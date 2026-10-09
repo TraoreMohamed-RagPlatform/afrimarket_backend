@@ -2,6 +2,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendEmailOTP, sendSmsOTP, generateOTP, validatePhoneNumber, formatPhoneNumber, getExpiryTime } = require('../utils/verificationService');
 const emailService = require('../utils/emailService');
+const { sendServerError } = require('../utils/httpErrors');
 
 const prisma = new PrismaClient();
 
@@ -49,7 +50,8 @@ const requestEmailVerification = async (req, res) => {
     const emailResult = await sendEmailOTP(email, otp, emailService);
 
     if (!emailResult.success) {
-      return res.status(500).json({ error: 'Erreur lors de l\'envoi du code' });
+      console.error('[verificationController.requestEmailVerification] envoi email échoué', emailResult.error);
+      return res.status(502).json({ error: 'Erreur lors de l\'envoi du code' });
     }
 
     res.status(200).json({
@@ -58,8 +60,7 @@ const requestEmailVerification = async (req, res) => {
       expiresIn: '10 minutes',
     });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    sendServerError(res, error, 'verificationController.requestEmailVerification');
   }
 };
 
@@ -117,8 +118,7 @@ const confirmEmail = async (req, res) => {
       verified: true,
     });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    sendServerError(res, error, 'verificationController.confirmEmail');
   }
 };
 
@@ -165,7 +165,8 @@ const requestPhoneVerification = async (req, res) => {
     const smsResult = await sendSmsOTP(formattedPhone, otp, 'verification');
 
     if (!smsResult.success) {
-      return res.status(500).json({ error: 'Erreur lors de l\'envoi du code SMS' });
+      console.error('[verificationController.requestPhoneVerification] envoi SMS échoué', smsResult.error);
+      return res.status(502).json({ error: 'Erreur lors de l\'envoi du code SMS' });
     }
 
     res.status(200).json({
@@ -174,8 +175,7 @@ const requestPhoneVerification = async (req, res) => {
       expiresIn: '10 minutes',
     });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    sendServerError(res, error, 'verificationController.requestPhoneVerification');
   }
 };
 
@@ -236,8 +236,7 @@ const confirmPhone = async (req, res) => {
       verified: true,
     });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    sendServerError(res, error, 'verificationController.confirmPhone');
   }
 };
 
@@ -281,8 +280,7 @@ const getVerificationStatus = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Erreur serveur' });
+    sendServerError(res, error, 'verificationController.getVerificationStatus');
   }
 };
 

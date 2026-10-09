@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const authMiddleware = require('../middleware/authMiddleware');
 const { loginLimiter, registerLimiter } = require('../middleware/rateLimitMiddleware');
 const { checkLoginLockout } = require('../middleware/loginLockoutMiddleware');
+const { apiLimiter } = require('../middleware/apiLimiter');
 const {
   register,
   login,
@@ -17,6 +18,9 @@ const {
 } = require('../controllers/authController');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 
 const validationErrorHandler = (req, res, next) => {
   const errors = validationResult(req);

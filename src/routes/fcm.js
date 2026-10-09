@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, validationResult } = require('express-validator');
 
 const prisma = require('../lib/prisma');
+const { apiLimiter } = require('../middleware/apiLimiter');
 const authMiddleware = require('../middleware/authMiddleware');
 const { sendServerError } = require('../utils/httpErrors');
 
@@ -26,6 +27,8 @@ const tokenRule = body('token')
   .isLength({ min: 1, max: MAX_TOKEN_LENGTH })
   .withMessage('Token FCM invalide');
 
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 router.use(authMiddleware);
 
 // ========================================

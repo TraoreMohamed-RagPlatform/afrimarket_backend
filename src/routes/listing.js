@@ -12,8 +12,12 @@ const {
 const authMiddleware = require('../middleware/authMiddleware');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 
 // ===== Rate Limiters pour Listings =====
 const listingCreateLimiter = rateLimit({

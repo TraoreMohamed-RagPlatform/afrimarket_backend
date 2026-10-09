@@ -2,8 +2,12 @@ const express = require('express');
 const AdminReportController = require('../controllers/adminReportController');
 const authMiddleware = require('../middleware/authMiddleware');
 const requireRole = require('../middleware/requireRole');
+const { apiLimiter } = require('../middleware/apiLimiter');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 
 // Toutes les routes de ce fichier sont réservées aux administrateurs.
 router.use(authMiddleware, requireRole('ADMIN'));

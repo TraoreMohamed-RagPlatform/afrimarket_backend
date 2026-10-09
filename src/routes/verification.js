@@ -3,6 +3,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const authMiddleware = require('../middleware/authMiddleware');
+const { apiLimiter } = require('../middleware/apiLimiter');
 const {
   requestEmailVerification,
   confirmEmail,
@@ -12,6 +13,9 @@ const {
 } = require('../controllers/verificationController');
 
 const router = express.Router();
+
+// Limite commune à toute l'API (voir middleware/apiLimiter.js).
+router.use(apiLimiter);
 
 // Rate limiters
 const emailLimiter = rateLimit({

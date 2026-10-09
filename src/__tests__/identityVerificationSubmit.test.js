@@ -7,6 +7,14 @@ jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn(() => mockPrisma) }))
 jest.mock('../services/faceMatchingService', () => ({
   performFullFaceVerification: jest.fn(),
 }));
+// Aucun accès réseau ni base pendant les tests (e-mails, SMS, statut).
+jest.mock('../services/identityVerificationService', () => ({
+  updateVerificationStatus: jest.fn().mockResolvedValue({ success: true }),
+}));
+jest.mock('../services/notificationService', () => ({
+  notifyVerificationCompleted: jest.fn().mockResolvedValue({ sent: true }),
+  sendAdminEmail: jest.fn().mockResolvedValue({ sent: true }),
+}));
 jest.mock('../services/kycFiles', () => ({
   ...jest.requireActual('../services/kycFiles'),
   resolveKycFile: jest.fn(),

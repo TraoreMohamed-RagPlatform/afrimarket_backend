@@ -36,9 +36,15 @@ const alterPassword = (client, role, password) =>
   client.$executeRawUnsafe(`ALTER ROLE "${role}" WITH PASSWORD '${password}'`);
 
 const main = async () => {
-  if (!fs.existsSync(ENV_PATH)) fail('fichier .env introuvable.');
-
-  const envText = fs.readFileSync(ENV_PATH, 'utf8');
+  // Le fichier est ouvert une seule fois, puis lu et réécrit via le même
+  // descripteur : pas d'écart entre vérification et utilisation (TOCTOU, CWE-367).
+  let envFd;
+  try {
+    envFd = fs.openSync(ENV_PATH, 'r+');
+  } catch {
+    fail('fichier .env introuvable ou illisible.');
+  }
+  const envText = fs.readFileSync(envFd, 'utf8');
   const match = envText.match(DB_URL_LINE);
   if (!match) fail('ligne DATABASE_URL introuvable dans .env.');
 
@@ -84,7 +90,9 @@ const main = async () => {
     DB_URL_LINE,
     () => `${prefix}${quote}${newUrl.toString()}${quote}${lineEnd}`,
   );
-  fs.writeFileSync(ENV_PATH, updated, 'utf8');
+  fs.ftruncateSync(envFd, 0);
+  fs.writeSync(envFd, updated, 0, 'utf8');
+  fs.closeSync(envFd);
 
   console.log('DATABASE_URL mis à jour dans .env.');
   console.log('Vérification avec le nouveau mot de passe : OK');

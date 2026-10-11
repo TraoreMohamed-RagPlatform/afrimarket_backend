@@ -1,25 +1,13 @@
 // src/controllers/supportController.js
 const SupportService = require('../utils/supportService');
-const RecaptchaService = require('../utils/recaptchaService');
 const { sendServerError } = require('../utils/httpErrors');
 
 class SupportController {
   // Contact Form Endpoints
   static async createContactForm(req, res) {
     try {
-      const { name, email, subject, message, category, recaptchaToken } = req.body;
-
-      // Vérifier reCAPTCHA v3. La vérification est toujours exécutée :
-      // le service refuse lui-même un jeton absent (pas de contournement possible).
-      const recaptchaResult = await RecaptchaService.verifyToken(recaptchaToken);
-
-      if (!recaptchaResult.success) {
-        return res.status(400).json({
-          success: false,
-          message: 'reCAPTCHA verification failed',
-          details: recaptchaResult.error,
-        });
-      }
+      // Client déjà vérifié par la route (App Check ou reCAPTCHA).
+      const { name, email, subject, message, category } = req.body;
 
       // Validation
       if (!name || !email || !subject || !message) {

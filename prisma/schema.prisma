@@ -45,6 +45,7 @@ model User {
   supportTickets  SupportTicket[]
   adminReports    AdminReport[]
   passwordResets  PasswordReset[]
+  refreshTokens   RefreshToken[]
 
 
   @@index([email])
@@ -213,6 +214,26 @@ model PasswordReset {
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([expiresAt])
+}
+
+// Jetons de rafraîchissement (sessions). Seule l'empreinte SHA-256 est stockée :
+// une fuite de la base ne donne aucun jeton utilisable.
+// Rotation à chaque usage ; un jeton déjà utilisé révoque toute sa famille.
+model RefreshToken {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash        String    @unique
+  familyId         String
+  sessionStartedAt DateTime
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  replacedById     String?
+  createdAt        DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
   @@index([expiresAt])
 }
 

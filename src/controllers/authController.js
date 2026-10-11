@@ -1,12 +1,17 @@
-const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-const { generateToken, verifyToken } = require('../utils/tokenUtils');
+const prisma = require('../lib/prisma');
+const { startSession, rotateSession, endSession, endAllSessions } = require('../services/sessionService');
+const {
+  PASSWORD_RULE_MESSAGE,
+  isPasswordAcceptable,
+  hashPassword,
+  verifyPassword,
+} = require('../utils/passwordPolicy');
 const { recordFailedLogin, resetLoginAttempts } = require('../middleware/loginLockoutMiddleware');
 const RecaptchaService = require('../utils/recaptchaService');
 const { sendResetPasswordEmail, sendPasswordChangeConfirmation } = require('../utils/passwordService');
 const { sendServerError } = require('../utils/httpErrors');
 
-const prisma = new PrismaClient();
+const INACTIVE_STATUSES = new Set(['SUSPENDED', 'DELETED']);
 
 const register = async (req, res) => {
   try {
@@ -20,7 +25,11 @@ const register = async (req, res) => {
       return res.status(400).json({ error: 'Email or username already exists' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    if (!isPasswordAcceptable(password)) {
+      return res.status(400).json({ error: PASSWORD_RULE_MESSAGE });
+    }
+
+    const hashedPassword = await hashPassword(password);
 
     const user = await prisma.user.create({
       data: {
@@ -31,8 +40,7 @@ const register = async (req, res) => {
       },
     });
 
-    const accessToken = generateToken(user.id);
-    const refreshToken = generateToken(user.id, '30d');
+    const session = await startSession(user.id);
 
     res.status(201).json({
       message: 'User registered successfully',
@@ -42,8 +50,7 @@ const register = async (req, res) => {
         username: user.username,
         fullName: user.fullName,
       },
-      accessToken,
-      refreshToken,
+      ...session,
     });
   } catch (error) {
     sendServerError(res, error, 'authController.register');
@@ -68,28 +75,24 @@ const login = async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    if (!user) {
+    // Comparaison toujours effectuée (empreinte factice si l'e-mail est
+    // inconnu) : même réponse et même durée, qu'il existe un compte ou non.
+    const isPasswordValid = await verifyPassword(password, user?.password);
+
+    if (!user || !isPasswordValid) {
       recordFailedLogin(email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    if (user.status === 'SUSPENDED' || user.status === 'DELETED') {
-      recordFailedLogin(email);
+    // Le statut du compte n'est révélé qu'avec le bon mot de passe.
+    if (INACTIVE_STATUSES.has(user.status)) {
       return res.status(403).json({ error: 'Account is not active' });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      recordFailedLogin(email);
-      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // Réinitialiser les tentatives échouées après une connexion réussie
     resetLoginAttempts(email);
 
-    const accessToken = generateToken(user.id);
-    const refreshToken = generateToken(user.id, '30d');
+    const session = await startSession(user.id);
 
     res.json({
       message: 'Login successful',
@@ -99,8 +102,7 @@ const login = async (req, res) => {
         username: user.username,
         fullName: user.fullName,
       },
-      accessToken,
-      refreshToken,
+      ...session,
     });
   } catch (error) {
     sendServerError(res, error, 'authController.login');
@@ -135,25 +137,15 @@ const getProfile = async (req, res) => {
 
 const refreshToken = async (req, res) => {
   try {
-    const { refreshToken: token } = req.body;
+    // Rotation : l'ancien jeton est invalidé et un nouveau est renvoyé.
+    // Toute erreur donne la même réponse (aucun détail exploitable).
+    const result = await rotateSession(req.body.refreshToken);
 
-    const decoded = verifyToken(token);
-
-    if (!decoded) {
+    if (!result.ok) {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-    });
-
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    const accessToken = generateToken(user.id);
-
-    res.json({ accessToken });
+    res.json(result.session);
   } catch (error) {
     sendServerError(res, error, 'authController.refreshToken');
   }
@@ -279,15 +271,8 @@ const forgotPassword = async (req, res) => {
 // Réinitialiser le mot de passe
 const resetPassword = async (req, res) => {
   try {
+    // Présence et format des champs : déjà validés par la route.
     const { email, code, newPassword } = req.body;
-
-    if (!email || !code || !newPassword) {
-      return res.status(400).json({ error: 'Email, code and new password are required' });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
 
     const user = await prisma.user.findUnique({ where: { email } });
 
@@ -312,18 +297,20 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ error: 'Reset code expired' });
     }
 
-    // Hasher le nouveau mot de passe
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await hashPassword(newPassword);
 
-    // Mettre à jour le mot de passe et marquer le code comme utilisé
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { password: hashedPassword },
-    });
-
-    await prisma.passwordReset.update({
-      where: { id: resetRecord.id },
-      data: { used: true },
+    // En une seule transaction : nouveau mot de passe, code consommé et
+    // déconnexion de tous les appareils (une session volée ne survit pas).
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword },
+      });
+      await tx.passwordReset.update({
+        where: { id: resetRecord.id },
+        data: { used: true },
+      });
+      await endAllSessions(user.id, tx);
     });
 
     res.json({
@@ -338,20 +325,10 @@ const resetPassword = async (req, res) => {
 // Changer le mot de passe (utilisateur connecté)
 const changePassword = async (req, res) => {
   try {
+    // Présence et format des champs : déjà validés par la route
+    // (routes/auth.js, règle commune des mots de passe).
     const { oldPassword, newPassword } = req.body;
     const userId = req.user.userId;
-
-    if (!oldPassword || !newPassword) {
-      return res.status(400).json({ error: 'Old password and new password are required' });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters' });
-    }
-
-    if (oldPassword === newPassword) {
-      return res.status(400).json({ error: 'New password must be different from old password' });
-    }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
@@ -360,20 +337,30 @@ const changePassword = async (req, res) => {
     }
 
     // Vérifier l'ancien mot de passe
-    const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    const isPasswordValid = await verifyPassword(oldPassword, user.password);
 
     if (!isPasswordValid) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    // Hasher le nouveau mot de passe
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    // Comparaison faite seulement après vérification de l'ancien mot de passe.
+    if (await verifyPassword(newPassword, user.password)) {
+      return res.status(400).json({ error: 'New password must be different from old password' });
+    }
 
-    // Mettre à jour le mot de passe
-    await prisma.user.update({
-      where: { id: userId },
-      data: { password: hashedPassword },
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Nouveau mot de passe et déconnexion de tous les appareils, ensemble.
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword },
+      });
+      await endAllSessions(userId, tx);
     });
+
+    // L'appareil courant reçoit une nouvelle session.
+    const session = await startSession(userId);
 
     // Envoyer email de confirmation
     try {
@@ -386,14 +373,32 @@ const changePassword = async (req, res) => {
     res.json({
       message: 'Password changed successfully',
       success: true,
+      ...session,
     });
   } catch (error) {
     sendServerError(res, error, 'authController.changePassword');
   }
 };
 
-const logout = (req, res) => {
-  res.json({ message: 'Logout successful' });
+// Déconnexion de l'appareil : le jeton de rafraîchissement est révoqué.
+// Réponse identique que le jeton existe ou non.
+const logout = async (req, res) => {
+  try {
+    await endSession(req.body.refreshToken);
+    res.json({ message: 'Logout successful' });
+  } catch (error) {
+    sendServerError(res, error, 'authController.logout');
+  }
+};
+
+// Déconnexion de tous les appareils de l'utilisateur.
+const logoutAll = async (req, res) => {
+  try {
+    await endAllSessions(req.user.userId);
+    res.json({ message: 'Logged out from all devices' });
+  } catch (error) {
+    sendServerError(res, error, 'authController.logoutAll');
+  }
 };
 
 module.exports = {
@@ -407,4 +412,5 @@ module.exports = {
   resetPassword,
   changePassword,
   logout,
+  logoutAll,
 };

@@ -4,6 +4,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const { loginLimiter, registerLimiter } = require('../middleware/rateLimitMiddleware');
 const { checkLoginLockout } = require('../middleware/loginLockoutMiddleware');
 const { apiLimiter } = require('../middleware/apiLimiter');
+const { PASSWORD_RULE_MESSAGE, isPasswordAcceptable } = require('../utils/passwordPolicy');
 const {
   register,
   login,
@@ -12,6 +13,7 @@ const {
   sendVerificationEmail,
   confirmEmail,
   logout,
+  logoutAll,
   forgotPassword,
   resetPassword,
   changePassword,
@@ -21,6 +23,13 @@ const router = express.Router();
 
 // Limite commune à toute l'API (voir middleware/apiLimiter.js).
 router.use(apiLimiter);
+
+// Règle unique pour tout nouveau mot de passe (voir utils/passwordPolicy.js).
+const newPasswordRule = (field) =>
+  body(field).custom((value) => isPasswordAcceptable(value)).withMessage(PASSWORD_RULE_MESSAGE);
+
+// Jeton de rafraîchissement : chaîne courte, jamais un objet.
+const refreshTokenRule = body('refreshToken').isString().isLength({ min: 1, max: 512 });
 
 const validationErrorHandler = (req, res, next) => {
   const errors = validationResult(req);
@@ -39,7 +48,7 @@ router.post(
   registerLimiter, // Rate limiting pour l'enregistrement
   body('email').isEmail().normalizeEmail(),
   body('username').isLength({ min: 3 }).trim().escape(),
-  body('password').isLength({ min: 8 }),
+  newPasswordRule('password'),
   body('fullName').trim().escape(),
   validationErrorHandler,
   register
@@ -63,7 +72,12 @@ router.post(
 // Logout Route
 // ========================================
 
-router.post('/logout', authMiddleware, logout);
+// Déconnexion de l'appareil : le jeton de rafraîchissement suffit, ce qui
+// permet de se déconnecter même avec un jeton d'accès expiré.
+router.post('/logout', refreshTokenRule, validationErrorHandler, logout);
+
+// Déconnexion de tous les appareils.
+router.post('/logout-all', authMiddleware, logoutAll);
 
 // ========================================
 // Profile Route
@@ -75,12 +89,7 @@ router.get('/me', authMiddleware, getProfile);
 // Refresh Token Route
 // ========================================
 
-router.post(
-  '/refresh-token',
-  body('refreshToken').notEmpty(),
-  validationErrorHandler,
-  refreshToken
-);
+router.post('/refresh-token', refreshTokenRule, validationErrorHandler, refreshToken);
 
 // ========================================
 // Email Verification Routes
@@ -118,7 +127,7 @@ router.post(
   '/reset-password',
   body('email').isEmail().normalizeEmail(),
   body('code').notEmpty().isLength({ min: 6, max: 6 }),
-  body('newPassword').isLength({ min: 6 }),
+  newPasswordRule('newPassword'),
   validationErrorHandler,
   resetPassword
 );
@@ -127,8 +136,8 @@ router.post(
 router.post(
   '/change-password',
   authMiddleware,
-  body('oldPassword').notEmpty(),
-  body('newPassword').isLength({ min: 6 }),
+  body('oldPassword').isString().notEmpty(),
+  newPasswordRule('newPassword'),
   validationErrorHandler,
   changePassword
 );

@@ -7,7 +7,6 @@ const {
   verifyPassword,
 } = require('../utils/passwordPolicy');
 const { recordFailedLogin, resetLoginAttempts } = require('../middleware/loginLockoutMiddleware');
-const RecaptchaService = require('../utils/recaptchaService');
 const { sendResetPasswordEmail, sendPasswordChangeConfirmation } = require('../utils/passwordService');
 const { sendServerError } = require('../utils/httpErrors');
 
@@ -59,19 +58,9 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password, recaptchaToken } = req.body;
-
-    // Vérifier le reCAPTCHA v3. La vérification est toujours exécutée :
-    // le service refuse lui-même un jeton absent (pas de contournement possible).
-    const recaptchaResult = await RecaptchaService.verifyToken(recaptchaToken);
-
-    if (!recaptchaResult.success) {
-      recordFailedLogin(email);
-      return res.status(400).json({
-        error: 'reCAPTCHA verification failed',
-        details: recaptchaResult.error
-      });
-    }
+    // Client déjà vérifié par la route (App Check ou reCAPTCHA, voir
+    // middleware/verifyClient.js).
+    const { email, password } = req.body;
 
     const user = await prisma.user.findUnique({ where: { email } });
 

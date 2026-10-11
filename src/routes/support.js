@@ -7,9 +7,10 @@ const router = express.Router();
 router.use(apiLimiter);
 const SupportController = require('../controllers/supportController');
 const authMiddleware = require('../middleware/authMiddleware');
+const { verifyClient } = require('../middleware/verifyClient');
 
 // Contact Form Routes
-router.post('/contact-form', SupportController.createContactForm);
+router.post('/contact-form', verifyClient, SupportController.createContactForm);
 router.get('/contact-forms', SupportController.getContactForms);
 router.get('/contact-form/:id', SupportController.getContactFormById);
 router.put('/contact-form/:id', SupportController.updateContactForm);

@@ -4,6 +4,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const { loginLimiter, registerLimiter } = require('../middleware/rateLimitMiddleware');
 const { checkLoginLockout } = require('../middleware/loginLockoutMiddleware');
 const { apiLimiter } = require('../middleware/apiLimiter');
+const { verifyClient } = require('../middleware/verifyClient');
 const { PASSWORD_RULE_MESSAGE, isPasswordAcceptable } = require('../utils/passwordPolicy');
 const {
   register,
@@ -46,6 +47,7 @@ const validationErrorHandler = (req, res, next) => {
 router.post(
   '/register',
   registerLimiter, // Rate limiting pour l'enregistrement
+  verifyClient, // Preuve d'un vrai client : App Check (mobile) ou reCAPTCHA (web)
   body('email').isEmail().normalizeEmail(),
   body('username').isLength({ min: 3 }).trim().escape(),
   newPasswordRule('password'),
@@ -62,6 +64,7 @@ router.post(
   '/login',
   loginLimiter, // Rate limiting
   checkLoginLockout, // Vérifier le verrouillage
+  verifyClient, // Preuve d'un vrai client : App Check (mobile) ou reCAPTCHA (web)
   body('email').isEmail().normalizeEmail(),
   body('password').notEmpty(),
   validationErrorHandler,

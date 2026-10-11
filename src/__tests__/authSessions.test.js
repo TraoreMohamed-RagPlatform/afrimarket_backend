@@ -172,6 +172,35 @@ describe('Authentification : jetons et sessions (S2)', () => {
     expect(res.status).toBe(400);
   });
 
+  test('changement de mot de passe : identique à l’ancien refusé, sessions conservées', async () => {
+    const { body: reg } = await register();
+
+    const res = await request(app)
+      .post('/api/auth/change-password')
+      .set('Authorization', `Bearer ${reg.accessToken}`)
+      .send({ oldPassword: PASSWORD, newPassword: PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect((await refresh(reg.refreshToken)).status).toBe(200);
+  });
+
+  test('changement de mot de passe : ancien mot de passe absent ou faux refusé', async () => {
+    const { body: reg } = await register();
+    const send = (payload) =>
+      request(app).post('/api/auth/change-password').set('Authorization', `Bearer ${reg.accessToken}`).send(payload);
+
+    expect((await send({ newPassword: 'Nouveau-mot-de-passe-7' })).status).toBe(400);
+    expect((await send({ oldPassword: { $ne: null }, newPassword: 'Nouveau-mot-de-passe-7' })).status).toBe(400);
+    expect((await send({ oldPassword: 'Faux-mot-de-passe', newPassword: 'Nouveau-mot-de-passe-7' })).status).toBe(401);
+  });
+
+  test('réinitialisation : champs manquants ou mot de passe trop court refusés par la route', async () => {
+    const reset = (payload) => request(app).post('/api/auth/reset-password').send(payload);
+
+    expect((await reset({ email: 'a@afrimarket.test', code: '123456' })).status).toBe(400);
+    expect((await reset({ email: 'a@afrimarket.test', code: '123456', newPassword: 'court' })).status).toBe(400);
+  });
+
   test('compte suspendu : statut révélé seulement avec le bon mot de passe', async () => {
     const { body: reg } = await register();
     await mockDb.user.update({ where: { id: reg.user.id }, data: { status: 'SUSPENDED' } });

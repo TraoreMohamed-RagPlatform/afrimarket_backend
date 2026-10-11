@@ -271,15 +271,8 @@ const forgotPassword = async (req, res) => {
 // Réinitialiser le mot de passe
 const resetPassword = async (req, res) => {
   try {
+    // Présence et format des champs : déjà validés par la route.
     const { email, code, newPassword } = req.body;
-
-    if (!email || !code || !newPassword) {
-      return res.status(400).json({ error: 'Email, code and new password are required' });
-    }
-
-    if (!isPasswordAcceptable(newPassword)) {
-      return res.status(400).json({ error: PASSWORD_RULE_MESSAGE });
-    }
 
     const user = await prisma.user.findUnique({ where: { email } });
 
@@ -332,20 +325,10 @@ const resetPassword = async (req, res) => {
 // Changer le mot de passe (utilisateur connecté)
 const changePassword = async (req, res) => {
   try {
+    // Présence et format des champs : déjà validés par la route
+    // (routes/auth.js, règle commune des mots de passe).
     const { oldPassword, newPassword } = req.body;
     const userId = req.user.userId;
-
-    if (!oldPassword || !newPassword) {
-      return res.status(400).json({ error: 'Old password and new password are required' });
-    }
-
-    if (!isPasswordAcceptable(newPassword)) {
-      return res.status(400).json({ error: PASSWORD_RULE_MESSAGE });
-    }
-
-    if (oldPassword === newPassword) {
-      return res.status(400).json({ error: 'New password must be different from old password' });
-    }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
@@ -358,6 +341,11 @@ const changePassword = async (req, res) => {
 
     if (!isPasswordValid) {
       return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Comparaison faite seulement après vérification de l'ancien mot de passe.
+    if (await verifyPassword(newPassword, user.password)) {
+      return res.status(400).json({ error: 'New password must be different from old password' });
     }
 
     const hashedPassword = await hashPassword(newPassword);

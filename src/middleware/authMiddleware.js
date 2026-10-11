@@ -1,4 +1,4 @@
-const { verifyToken } = require('../utils/tokenUtils');
+const { verifyAccessToken } = require('../utils/tokenUtils');
 
 const BEARER_PREFIX = 'Bearer ';
 
@@ -16,10 +16,11 @@ const authMiddleware = (req, res, next) => {
     return res.status(401).json({ error: 'No token provided' });
   }
 
-  const decoded = verifyToken(header.slice(BEARER_PREFIX.length).trim());
+  // Seul un jeton d'accès valide (type, émetteur, audience, signature,
+  // expiration) est accepté. Fermé par défaut.
+  const decoded = verifyAccessToken(header.slice(BEARER_PREFIX.length).trim());
 
-  // Fermé par défaut : un token sans identifiant exploitable est refusé.
-  if (!decoded || typeof decoded.userId !== 'string' || decoded.userId === '') {
+  if (!decoded) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 

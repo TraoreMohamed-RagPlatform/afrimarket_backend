@@ -47,11 +47,29 @@ const jpegWithMetadata = () =>
     .jpeg()
     .toBuffer();
 
-const tempFiles = () => fs.readdirSync(TEMP_DIR);
 const savedNames = [];
+
+/**
+ * Fichiers temporaires supprimés pendant la requête. On ne compare pas le
+ * contenu de uploads/temp : les autres suites (KYC) l'utilisent en parallèle.
+ */
+const spyTempRemovals = () => {
+  const unlink = jest.spyOn(fs.promises, 'unlink');
+  return () => unlink.mock.calls.map(([file]) => String(file)).filter((file) => file.startsWith(TEMP_DIR + path.sep));
+};
+
+/** Exactement [count] fichiers temporaires supprimés, et plus sur le disque. */
+const expectTempFilesRemoved = (removed, count) => {
+  expect(removed).toHaveLength(count);
+  for (const file of removed) {
+    expect(fs.existsSync(file)).toBe(false);
+  }
+};
 
 describe('Photos des annonces', () => {
   beforeAll(useTestJwtSecret);
+
+  afterEach(() => jest.restoreAllMocks());
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -83,7 +101,7 @@ describe('Photos des annonces', () => {
 
     test('photo réencodée : JPEG ≤ 1600 px, sans métadonnées (GPS), à la suite des autres', async () => {
       mockPrisma.listing.findUnique.mockResolvedValue(listingWith(2));
-      const before = tempFiles();
+      const tempRemovals = spyTempRemovals();
 
       const res = await upload(buildApp(), [[await jpegWithMetadata(), 'photo.jpg', 'image/jpeg']]);
 
@@ -102,7 +120,7 @@ describe('Photos des annonces', () => {
       expect(fs.readFileSync(file).includes('secret-owner')).toBe(false);
 
       // Fichier temporaire supprimé.
-      expect(tempFiles()).toEqual(before);
+      expectTempFilesRemoved(tempRemovals(), 1);
     });
 
     test('PNG accepté, converti en JPEG', async () => {
@@ -122,7 +140,7 @@ describe('Photos des annonces', () => {
 
     test('faux JPEG (texte) : 400, rien d’enregistré, temporaire supprimé', async () => {
       mockPrisma.listing.findUnique.mockResolvedValue(listingWith(0));
-      const before = tempFiles();
+      const tempRemovals = spyTempRemovals();
       const photosBefore = fs.readdirSync(LISTING_PHOTOS_DIR);
 
       const res = await upload(buildApp(), [
@@ -132,7 +150,7 @@ describe('Photos des annonces', () => {
       expect(res.status).toBe(400);
       expect(res.body).toEqual({ error: 'Invalid image' });
       expect(mockPrisma.image.create).not.toHaveBeenCalled();
-      expect(tempFiles()).toEqual(before);
+      expectTempFilesRemoved(tempRemovals(), 1);
       expect(fs.readdirSync(LISTING_PHOTOS_DIR)).toEqual(photosBefore);
     });
 
@@ -161,12 +179,12 @@ describe('Photos des annonces', () => {
 
     test('annonce d’un autre vendeur : 403, temporaire supprimé', async () => {
       mockPrisma.listing.findUnique.mockResolvedValue(listingWith(0, 'someone-else'));
-      const before = tempFiles();
+      const tempRemovals = spyTempRemovals();
 
       const res = await upload(buildApp(), [[await jpegWithMetadata(), 'a.jpg', 'image/jpeg']]);
 
       expect(res.status).toBe(403);
-      expect(tempFiles()).toEqual(before);
+      expectTempFilesRemoved(tempRemovals(), 1);
     });
 
     test('sans photo : 400 ; sans token : 401', async () => {

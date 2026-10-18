@@ -12,7 +12,7 @@ const {
   markAsSold
 } = require('../controllers/listingController');
 const authMiddleware = require('../middleware/authMiddleware');
-const { body, validationResult } = require('express-validator');
+const { body, query, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { apiLimiter } = require('../middleware/apiLimiter');
 const {
@@ -29,6 +29,8 @@ const {
   DELIVERY_MODES,
   REPORT_REASONS,
   MAX_LISTING_PHOTOS,
+  OWNER_SETTABLE_STATUSES,
+  FEED_SORTS,
 } = require('../config/listingOptions');
 
 const router = express.Router();
@@ -148,12 +150,37 @@ const validateUpdateListing = [
     .trim()
     .isLength({ min: 1 }).withMessage('L\'ID de catégorie est invalide'),
 
-  // La vente passe par /mark-sold ; les autres statuts sont réservés au serveur.
+  // La vente passe par /mark-sold.
   body('status')
     .optional()
-    .isIn(['ACTIVE', 'INACTIVE']).withMessage('Statut invalide'),
+    .isIn(OWNER_SETTABLE_STATUSES).withMessage('Statut invalide'),
 
   ...listingDetailsRules,
+];
+
+/** Paramètres du fil : tout paramètre fourni doit être valide. */
+const validateFeedQuery = [
+  // Chaque paramètre est un texte unique : « ?city=a&city=b » est refusé.
+  ...['page', 'limit', 'categoryId', 'city', 'district', 'minPrice', 'maxPrice', 'sort', 'search'].map(
+    (name) => query(name).optional().isString().withMessage(`${name} invalide`),
+  ),
+  query('page').optional().isInt({ min: 1, max: 10000 }).withMessage('Page invalide'),
+  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Taille de page invalide'),
+  query('categoryId').optional().isLength({ min: 1, max: 64 }).withMessage('Catégorie invalide'),
+  query('city').optional().isIn(Object.keys(CITIES)).withMessage('Ville inconnue'),
+  query('district')
+    .optional()
+    .custom((district, { req }) => isKnownDistrict(req.query.city ?? DEFAULT_CITY, district))
+    .withMessage('Quartier inconnu'),
+  query('minPrice').optional().isFloat({ min: 0 }).withMessage('Prix minimum invalide'),
+  query('maxPrice')
+    .optional()
+    .isFloat({ min: 0 }).withMessage('Prix maximum invalide')
+    .bail()
+    .custom((max, { req }) => req.query.minPrice === undefined || Number(max) >= Number(req.query.minPrice))
+    .withMessage('Le prix maximum doit être supérieur au prix minimum'),
+  query('sort').optional().isIn(Object.keys(FEED_SORTS)).withMessage('Tri inconnu'),
+  query('search').optional().isLength({ max: 100 }).withMessage('Recherche trop longue'),
 ];
 
 const validateReport = [
@@ -203,6 +230,8 @@ router.post(
 router.get(
   '/',
   listingGeneralLimiter, // Rate limiting (pas besoin d'auth)
+  validateFeedQuery,
+  handleValidationErrors,
   getListings
 );
 

@@ -3,7 +3,13 @@ const { sendEmail } = require('../utils/emailService');
 const { sendServerError } = require('../utils/httpErrors');
 const { escapeHtml } = require('../utils/html');
 const { sanitizeForLog } = require('../utils/logSafe');
-const { DEFAULT_CITY, DEFAULT_DELIVERY_MODE } = require('../config/listingOptions');
+const {
+  DEFAULT_CITY,
+  DEFAULT_DELIVERY_MODE,
+  FEED_STATUSES,
+  FEED_SORTS,
+  DEFAULT_FEED_SORT,
+} = require('../config/listingOptions');
 const { publicResponseTime } = require('../services/responseTime');
 const { removePhotos } = require('../services/listingPhotos');
 
@@ -53,19 +59,46 @@ const createListing = async (req, res) => {
 };
 
 // ========================================
-// Get All Listings
+// Get All Listings (fil)
 // ========================================
+
+const FEED_DEFAULT_LIMIT = 20;
+const FEED_MAX_LIMIT = 50;
+
+/**
+ * Fil d'annonces : actives et réservées (comme Marketplace, une annonce
+ * réservée reste visible avec son badge).
+ *
+ * Filtres (validés par la route) : `categoryId`, `city` + `district`,
+ * `minPrice` / `maxPrice`, `search`. Tri : `sort` (newest, price_asc,
+ * price_desc). Pages de 20 annonces, 50 au plus.
+ */
 const getListings = async (req, res) => {
   try {
-    const { page = 1, limit = 10, categoryId, search } = req.query;
-    const skip = (page - 1) * limit;
+    const {
+      categoryId,
+      search,
+      city,
+      district,
+      minPrice,
+      maxPrice,
+      sort = DEFAULT_FEED_SORT,
+    } = req.query;
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requested = Number.parseInt(req.query.limit, 10);
+    const limit = requested > 0 ? Math.min(requested, FEED_MAX_LIMIT) : FEED_DEFAULT_LIMIT;
 
-    const where = {
-      status: 'ACTIVE',
-    };
+    const where = { status: { in: [...FEED_STATUSES] } };
 
-    if (categoryId) {
-      where.categoryId = categoryId;
+    if (categoryId) where.categoryId = categoryId;
+    if (city) where.city = city;
+    if (district) where.district = district;
+
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      where.price = {
+        ...(minPrice !== undefined && { gte: Number(minPrice) }),
+        ...(maxPrice !== undefined && { lte: Number(maxPrice) }),
+      };
     }
 
     if (search) {
@@ -75,34 +108,33 @@ const getListings = async (req, res) => {
       ];
     }
 
-    const listings = await prisma.listing.findMany({
-      where,
-      include: {
-        user: {
-          select: {
-            id: true,
-            username: true,
-            avatar: true,
-            avgRating: true,
+    const [listings, total] = await Promise.all([
+      prisma.listing.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              avatar: true,
+              avgRating: true,
+            },
           },
+          category: true,
+          images: { orderBy: PHOTO_ORDER },
         },
-        category: true,
-        images: { orderBy: PHOTO_ORDER },
-      },
-      skip: parseInt(skip),
-      take: parseInt(limit),
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-
-    const total = await prisma.listing.count({ where });
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: FEED_SORTS[sort] ?? FEED_SORTS[DEFAULT_FEED_SORT],
+      }),
+      prisma.listing.count({ where }),
+    ]);
 
     res.json({
       listings,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         total,
         pages: Math.ceil(total / limit),
       },

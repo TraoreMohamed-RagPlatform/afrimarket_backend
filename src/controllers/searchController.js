@@ -1,6 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendServerError } = require('../utils/httpErrors');
-const { locationOptions, DELIVERY_MODES, REPORT_REASONS } = require('../config/listingOptions');
+const { locationOptions, DELIVERY_MODES, REPORT_REASONS, FEED_SORTS } = require('../config/listingOptions');
 
 const prisma = new PrismaClient();
 
@@ -141,9 +141,10 @@ const advancedSearch = async (req, res) => {
 const getFilterOptions = async (req, res) => {
   try {
     // Get all categories
+    // Ordre du menu (position), puis alphabétique.
     const categories = await prisma.category.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' }
+      select: { id: true, name: true, slug: true, icon: true },
+      orderBy: [{ position: 'asc' }, { name: 'asc' }],
     });
 
     // Get price range
@@ -170,6 +171,8 @@ const getFilterOptions = async (req, res) => {
         locations: locationOptions(),
         deliveryModes: DELIVERY_MODES,
         reportReasons: REPORT_REASONS,
+        // Tris du fil (GET /api/listings?sort=...).
+        feedSorts: Object.keys(FEED_SORTS),
         sortOptions: [
           { value: 'date_newest', label: 'Plus récent' },
           { value: 'date_oldest', label: 'Plus ancien' },

@@ -9,7 +9,8 @@
     "test": "jest --coverage",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "db:rotate-password": "node scripts/rotate-db-password.js"
+    "db:rotate-password": "node scripts/rotate-db-password.js",
+    "db:seed": "node prisma/seed.js"
   },
   "keywords": [
     "marketplace",

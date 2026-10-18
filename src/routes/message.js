@@ -40,6 +40,11 @@ router.get('/conversations', [authMiddleware, messageReadLimiter], (req, res) =>
   messageController.getConversations(req, res);
 });
 
+// GET /api/messages/unread-count (avant /:conversationId)
+router.get('/unread-count', [authMiddleware, messageReadLimiter], (req, res) => {
+  messageController.getUnreadCount(req, res);
+});
+
 // GET /api/messages/:conversationId
 router.get('/:conversationId', [authMiddleware, messageReadLimiter], (req, res) => {
   messageController.getMessages(req, res);

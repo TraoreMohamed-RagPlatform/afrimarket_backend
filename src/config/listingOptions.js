@@ -89,6 +89,43 @@ const REPORT_REASONS = Object.freeze([
   'OTHER',
 ]);
 
+/**
+ * Statuts d'une annonce.
+ * - ACTIVE : en vente ;
+ * - RESERVED : promise à un acheteur, toujours visible (badge « Réservé ») ;
+ * - SOLD : vendue (via /mark-sold) ;
+ * - INACTIVE : masquée par le vendeur.
+ */
+const LISTING_STATUSES = Object.freeze(['ACTIVE', 'RESERVED', 'SOLD', 'INACTIVE']);
+
+/** Statuts que le vendeur peut choisir lui-même (PUT /api/listings/:id). */
+const OWNER_SETTABLE_STATUSES = Object.freeze(['ACTIVE', 'RESERVED', 'INACTIVE']);
+
+/** Statuts affichés dans le fil (comme Marketplace : une annonce réservée reste visible). */
+const FEED_STATUSES = Object.freeze(['ACTIVE', 'RESERVED']);
+
+/** Tris du fil. Clé : valeur du paramètre `sort`. */
+const FEED_SORTS = Object.freeze({
+  newest: [{ createdAt: 'desc' }, { id: 'desc' }],
+  price_asc: [{ price: 'asc' }, { createdAt: 'desc' }],
+  price_desc: [{ price: 'desc' }, { createdAt: 'desc' }],
+});
+const DEFAULT_FEED_SORT = 'newest';
+
+/**
+ * Catégories de l'application (maquettes validées), dans l'ordre du menu.
+ * `icon` : nom de l'icône Phosphor côté mobile.
+ */
+const CATEGORIES = Object.freeze([
+  { slug: 'logement', name: 'Logement', icon: 'house', description: 'Chambres, colocations, appartements' },
+  { slug: 'articles', name: 'Articles', icon: 'shoppingBag', description: 'Meubles, électronique, vêtements, téléphones' },
+  { slug: 'services', name: 'Services', icon: 'wrench', description: 'Coiffure, transferts, cours, réparations' },
+  { slug: 'emploi', name: 'Emploi', icon: 'briefcase', description: 'Offres et demandes d’emploi' },
+  { slug: 'transport', name: 'Transport', icon: 'car', description: 'Véhicules, covoiturage, déménagement' },
+  { slug: 'recherche', name: 'Recherche', icon: 'magnifyingGlass', description: 'Ce que vous cherchez' },
+  { slug: 'autres', name: 'Autres', icon: 'megaphone', description: 'Tout le reste' },
+]);
+
 /** Nombre maximal de photos par annonce (comme Facebook Marketplace). */
 const MAX_LISTING_PHOTOS = 10;
 
@@ -102,4 +139,10 @@ module.exports = {
   DEFAULT_DELIVERY_MODE,
   REPORT_REASONS,
   MAX_LISTING_PHOTOS,
+  LISTING_STATUSES,
+  OWNER_SETTABLE_STATUSES,
+  FEED_STATUSES,
+  FEED_SORTS,
+  DEFAULT_FEED_SORT,
+  CATEGORIES,
 };

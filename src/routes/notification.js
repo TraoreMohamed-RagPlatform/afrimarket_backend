@@ -1,10 +1,17 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body, param, query, validationResult } = require('express-validator');
 const authMiddleware = require('../middleware/authMiddleware');
+const requireRole = require('../middleware/requireRole');
 const { apiLimiter } = require('../middleware/apiLimiter');
 const {
   sendNotification,
 } = require('../controllers/notificationController');
+const {
+  listMyNotifications,
+  getUnreadNotificationCount,
+  markNotificationRead,
+  markAllNotificationsRead,
+} = require('../controllers/notificationInboxController');
 
 const router = express.Router();
 
@@ -20,12 +27,42 @@ const validationErrorHandler = (req, res, next) => {
 };
 
 // ========================================
-// POST /api/notifications - Envoyer notification
+// Mes notifications (connexion requise)
 // ========================================
+
+router.get(
+  '/',
+  authMiddleware,
+  query('page').optional().isInt({ min: 1, max: 10000 }),
+  validationErrorHandler,
+  listMyNotifications
+);
+
+// Avant /:id : sinon « unread-count » serait lu comme un identifiant.
+router.get('/unread-count', authMiddleware, getUnreadNotificationCount);
+
+router.put('/read-all', authMiddleware, markAllNotificationsRead);
+
+router.put(
+  '/:id/read',
+  authMiddleware,
+  param('id').isString().isLength({ min: 1, max: 64 }),
+  validationErrorHandler,
+  markNotificationRead
+);
+
+// ========================================
+// POST /api/notifications - Diffusion en direct (administrateurs)
+// ========================================
+//
+// Sécurité : ces routes envoient un message à TOUS les clients connectés.
+// Réservées aux administrateurs : sinon n'importe qui pourrait diffuser un
+// faux message « officiel » (hameçonnage).
 
 router.post(
   '/',
   authMiddleware,
+  requireRole('ADMIN'),
   body('userId').notEmpty(),
   body('type').isIn(['message', 'listing', 'rating', 'offer', 'online']),
   body('message').notEmpty(),
@@ -37,7 +74,7 @@ router.post(
 // GET /api/notifications/test - Test WebSocket
 // ========================================
 
-router.get('/test', (req, res) => {
+router.get('/test', authMiddleware, requireRole('ADMIN'), (req, res) => {
   const io = req.app.get('io');
   
   io.emit('test_notification', {

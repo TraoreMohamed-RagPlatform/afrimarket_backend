@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendServerError } = require('../utils/httpErrors');
+const { createNotification } = require('../services/notificationService');
 
 const prisma = new PrismaClient();
 
@@ -54,6 +55,17 @@ const addToFavorites = async (req, res) => {
           },
         },
       },
+    });
+
+    // Le vendeur est prévenu (jamais de son propre favori).
+    await createNotification({
+      prisma,
+      userId: listing.userId,
+      actorId: userId,
+      type: 'LISTING_INTEREST',
+      title: 'Votre annonce intéresse',
+      message: `Quelqu'un a enregistré votre annonce « ${favorite.listing.title} ».`,
+      listingId,
     });
 
     res.status(201).json({

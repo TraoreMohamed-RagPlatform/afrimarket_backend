@@ -72,6 +72,7 @@ model Listing {
   condition   String
   isSold      Boolean  @default(false)
   searchKeywords String[]  @default([])
+  // ACTIVE, RESERVED (réservée, toujours visible), SOLD, INACTIVE
   status      String   @default("ACTIVE")
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -154,10 +155,13 @@ model Category {
   slug        String   @unique
   description String?
   icon        String?
+  // Ordre d'affichage (menu « Catégories ») : plus petit d'abord.
+  position    Int      @default(0)
   listings    Listing[]
   createdAt   DateTime @default(now())
 
   @@index([slug])
+  @@index([position])
 }
 
 model Message {
@@ -174,10 +178,13 @@ model Message {
   listingId       String?
   listing         Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
+  // Lu par le destinataire (null : non lu). Rempli à l'ouverture de la conversation.
+  readAt          DateTime?
   createdAt       DateTime @default(now())
 
   @@index([senderId])
   @@index([conversationId])
+  @@index([conversationId, readAt])
   @@index([listingId])
   @@index([createdAt])
 }
@@ -238,6 +245,7 @@ model Notification {
   @@index([userId])
   @@index([read])
   @@index([createdAt])
+  @@index([userId, read])
 }
 
 model Verification {

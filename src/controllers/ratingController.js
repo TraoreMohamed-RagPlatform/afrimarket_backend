@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendRatingReceivedEmail } = require('../utils/emailTemplates');
 const { sendServerError } = require('../utils/httpErrors');
+const { createNotification } = require('../services/notificationService');
 
 const prisma = new PrismaClient();
 
@@ -58,6 +59,16 @@ const createRating = async (req, res) => {
         user: { select: { id: true, username: true, avatar: true } },
         listing: { select: { id: true, title: true } }
       }
+    });
+
+    await createNotification({
+      prisma,
+      userId: listing.userId,
+      actorId: userId,
+      type: 'RATING_RECEIVED',
+      title: 'Nouvel avis',
+      message: `Vous avez reçu une note de ${rating.score}/5 pour « ${listing.title} ».`,
+      listingId,
     });
 
     // ✅ ENVOYER EMAIL AU VENDEUR

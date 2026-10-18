@@ -197,7 +197,26 @@ const getConversations = async (req, res) => {
       orderBy: { lastMessageAt: 'desc' },
     });
 
-    res.json(conversations);
+    // Messages non lus par conversation (pastille de la liste).
+    const unread = conversations.length === 0
+      ? []
+      : await prisma.message.groupBy({
+          by: ['conversationId'],
+          where: {
+            conversationId: { in: conversations.map((conversation) => conversation.id) },
+            senderId: { not: userId },
+            readAt: null,
+          },
+          _count: { _all: true },
+        });
+    const unreadById = new Map(unread.map((row) => [row.conversationId, row._count._all]));
+
+    res.json(
+      conversations.map((conversation) => ({
+        ...conversation,
+        unreadCount: unreadById.get(conversation.id) ?? 0,
+      })),
+    );
   } catch (error) {
     sendServerError(res, error, 'messageController.getConversations');
   }
@@ -221,6 +240,12 @@ const getMessages = async (req, res) => {
       return res.status(403).json({ error: 'Vous n\'avez pas accès à cette conversation' });
     }
 
+    // Ouvrir la conversation marque comme lus les messages reçus.
+    await prisma.message.updateMany({
+      where: { conversationId, senderId: { not: userId }, readAt: null },
+      data: { readAt: new Date() },
+    });
+
     // Récupérer les messages
     const messages = await prisma.message.findMany({
       where: { conversationId },
@@ -230,6 +255,27 @@ const getMessages = async (req, res) => {
     res.json(messages);
   } catch (error) {
     sendServerError(res, error, 'messageController.getMessages');
+  }
+};
+
+/**
+ * Nombre de messages reçus et non lus, toutes conversations confondues
+ * (pastille de l'onglet Messages).
+ */
+const getUnreadCount = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const count = await prisma.message.count({
+      where: {
+        readAt: null,
+        senderId: { not: userId },
+        conversation: { is: { participants: { has: userId } } },
+      },
+    });
+    res.set('Cache-Control', 'no-store');
+    res.json({ count });
+  } catch (error) {
+    sendServerError(res, error, 'messageController.getUnreadCount');
   }
 };
 
@@ -267,5 +313,6 @@ module.exports = {
   sendMessage,
   getConversations,
   getMessages,
+  getUnreadCount,
   deleteMessage,
 };

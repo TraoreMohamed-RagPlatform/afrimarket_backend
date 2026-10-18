@@ -11,9 +11,11 @@ const PHOTO_ORDER = [{ position: 'asc' }, { createdAt: 'asc' }];
 
 /**
  * Annonce de l'utilisateur, avec ses photos dans l'ordre.
- * Répond 404 / 403 elle-même et renvoie null dans ce cas.
+ *
+ * @returns {Promise<{ listing: object } | { status: number, body: object }>}
+ *   l'annonce, ou la réponse d'erreur à envoyer (404 / 403).
  */
-const findOwnListing = async (req, res) => {
+const findOwnListing = async (req) => {
   const listing = await prisma.listing.findUnique({
     where: { id: req.params.id },
     select: {
@@ -24,14 +26,12 @@ const findOwnListing = async (req, res) => {
   });
 
   if (!listing) {
-    res.status(404).json({ error: 'Listing not found' });
-    return null;
+    return { status: 404, body: { error: 'Listing not found' } };
   }
   if (listing.userId !== req.user.userId) {
-    res.status(403).json({ error: 'Unauthorized' });
-    return null;
+    return { status: 403, body: { error: 'Unauthorized' } };
   }
-  return listing;
+  return { listing };
 };
 
 /** Renumérote les photos restantes : 0, 1, 2... dans l'ordre donné. */
@@ -47,69 +47,84 @@ const savePositions = (imageIds) =>
 // ========================================
 
 /**
- * Ajoute des photos à la fin de l'annonce (10 au total au plus).
- * Chaque photo est réencodée (voir services/listingPhotos.js) ; les fichiers
- * temporaires sont toujours supprimés.
+ * Ajout des photos. Renvoie la réponse à envoyer ; ne touche pas aux
+ * fichiers temporaires (supprimés par l'appelant).
  */
-const uploadListingImages = async (req, res) => {
-  const files = Array.isArray(req.files) ? req.files : [];
-  const saved = [];
+const addPhotos = async (req, files) => {
+  if (files.length === 0) {
+    return { status: 400, body: { error: 'No image provided' } };
+  }
 
-  try {
-    if (files.length === 0) {
-      return res.status(400).json({ error: 'No image provided' });
-    }
+  const owned = await findOwnListing(req);
+  if (!owned.listing) return owned;
+  const { listing } = owned;
 
-    const listing = await findOwnListing(req, res);
-    if (!listing) return undefined;
-
-    if (listing.images.length + files.length > MAX_LISTING_PHOTOS) {
-      return res.status(400).json({
+  if (listing.images.length + files.length > MAX_LISTING_PHOTOS) {
+    return {
+      status: 400,
+      body: {
         error: 'Too many photos',
         max: MAX_LISTING_PHOTOS,
         remaining: Math.max(0, MAX_LISTING_PHOTOS - listing.images.length),
-      });
-    }
-
-    for (const file of files) {
-      try {
-        saved.push(await savePhoto(tempUploadPath(file)));
-      } catch {
-        await removePhotos(saved.map((photo) => photo.name));
-        return res.status(400).json({ error: 'Invalid image' });
-      }
-    }
-
-    const nextPosition = listing.images.length === 0
-      ? 0
-      : Math.max(...listing.images.map((image) => image.position)) + 1;
-
-    let images;
-    try {
-      images = await prisma.$transaction(
-        saved.map((photo, index) =>
-          prisma.image.create({
-            data: {
-              listingId: listing.id,
-              url: photo.url,
-              publicId: photo.name,
-              position: nextPosition + index,
-            },
-            select: IMAGE_SELECT,
-          }),
-        ),
-      );
-    } catch (error) {
-      await removePhotos(saved.map((photo) => photo.name));
-      throw error;
-    }
-
-    return res.status(201).json({ images });
-  } catch (error) {
-    return sendServerError(res, error, 'listingImageController.uploadListingImages');
-  } finally {
-    await removeTempUploads(...files);
+      },
+    };
   }
+
+  const saved = [];
+  for (const file of files) {
+    try {
+      saved.push(await savePhoto(tempUploadPath(file)));
+    } catch {
+      await removePhotos(saved.map((photo) => photo.name));
+      return { status: 400, body: { error: 'Invalid image' } };
+    }
+  }
+
+  const nextPosition = listing.images.length === 0
+    ? 0
+    : Math.max(...listing.images.map((image) => image.position)) + 1;
+
+  try {
+    const images = await prisma.$transaction(
+      saved.map((photo, index) =>
+        prisma.image.create({
+          data: {
+            listingId: listing.id,
+            url: photo.url,
+            publicId: photo.name,
+            position: nextPosition + index,
+          },
+          select: IMAGE_SELECT,
+        }),
+      ),
+    );
+    return { status: 201, body: { images } };
+  } catch (error) {
+    await removePhotos(saved.map((photo) => photo.name));
+    throw error;
+  }
+};
+
+/**
+ * Ajoute des photos à la fin de l'annonce (10 au total au plus).
+ * Chaque photo est réencodée (voir services/listingPhotos.js). Les fichiers
+ * temporaires sont supprimés AVANT la réponse, dans tous les cas.
+ */
+const uploadListingImages = async (req, res) => {
+  const files = Array.isArray(req.files) ? req.files : [];
+  let result;
+  try {
+    result = await addPhotos(req, files);
+  } catch (error) {
+    result = { error };
+  }
+
+  await removeTempUploads(...files);
+
+  if (result.error instanceof Error) {
+    return sendServerError(res, result.error, 'listingImageController.uploadListingImages');
+  }
+  return res.status(result.status).json(result.body);
 };
 
 // ========================================
@@ -118,8 +133,9 @@ const uploadListingImages = async (req, res) => {
 
 const deleteListingImage = async (req, res) => {
   try {
-    const listing = await findOwnListing(req, res);
-    if (!listing) return undefined;
+    const owned = await findOwnListing(req);
+    if (!owned.listing) return res.status(owned.status).json(owned.body);
+    const { listing } = owned;
 
     const image = listing.images.find((item) => item.id === req.params.imageId);
     if (!image) {
@@ -148,8 +164,9 @@ const deleteListingImage = async (req, res) => {
  */
 const reorderListingImages = async (req, res) => {
   try {
-    const listing = await findOwnListing(req, res);
-    if (!listing) return undefined;
+    const owned = await findOwnListing(req);
+    if (!owned.listing) return res.status(owned.status).json(owned.body);
+    const { listing } = owned;
 
     const { imageIds } = req.body;
     const current = new Set(listing.images.map((image) => image.id));

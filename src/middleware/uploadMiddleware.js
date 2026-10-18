@@ -85,3 +85,11 @@ exports.uploadDocuments = upload.fields([
 
 // Selfie
 exports.uploadSelfie = upload.single('selfiePhoto');
+
+// Photos d'une annonce (champ « images », 10 au plus par envoi).
+const LISTING_PHOTOS_PER_REQUEST = 10;
+exports.uploadListingPhotos = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: MAX_FILE_SIZE, files: LISTING_PHOTOS_PER_REQUEST },
+}).array('images', LISTING_PHOTOS_PER_REQUEST);

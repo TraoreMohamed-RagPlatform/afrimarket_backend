@@ -61,6 +61,22 @@ const validateUpdateProfile = [
     .isURL().withMessage('L\'avatar doit être une URL valide'),
 ];
 
+// Paramètres : uniquement des booléens JSON (pas « "true" » ni 1).
+const isJsonBoolean = (value) => typeof value === 'boolean';
+const validateUpdateSettings = [
+  body('privacy').optional().isObject().withMessage('privacy doit être un objet'),
+  body('notifications').optional().isObject().withMessage('notifications doit être un objet'),
+  ...[
+    'privacy.showPhoneNumber',
+    'privacy.whatsappEnabled',
+    'notifications.messageAlerts',
+    'notifications.listingAlerts',
+    'notifications.ratingAlerts',
+  ].map((field) =>
+    body(field).optional().custom(isJsonBoolean).withMessage(`${field} doit être un booléen`),
+  ),
+];
+
 const validateDeleteAccount = [
   body('password')
     .notEmpty().withMessage('Le mot de passe est requis'),
@@ -118,6 +134,8 @@ router.put(
   '/me/settings',
   authMiddleware,
   profileUpdateLimiter,
+  validateUpdateSettings,
+  handleValidationErrors,
   updateMySettings
 );
 

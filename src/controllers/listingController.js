@@ -3,8 +3,14 @@ const { sendEmail } = require('../utils/emailService');
 const { sendServerError } = require('../utils/httpErrors');
 const { escapeHtml } = require('../utils/html');
 const { sanitizeForLog } = require('../utils/logSafe');
+const { DEFAULT_CITY, DEFAULT_DELIVERY_MODE } = require('../config/listingOptions');
+const { publicResponseTime } = require('../services/responseTime');
+const { removePhotos } = require('../services/listingPhotos');
 
 const prisma = new PrismaClient();
+
+/** Ordre d'affichage des photos : principale d'abord. */
+const PHOTO_ORDER = [{ position: 'asc' }, { createdAt: 'asc' }];
 
 // ========================================
 // Create Listing
@@ -15,19 +21,25 @@ const createListing = async (req, res) => {
     const userId = req.user.userId;
 
     // Validation
-    if (!title || !description || !price || !categoryId) {
+    if (!title || !description || price === undefined || price === null || !categoryId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const { city, district, isNegotiable, deliveryMode } = req.body;
+
     const listing = await prisma.listing.create({
       data: {
-        title: req.body.title,
-        description: req.body.description,
-        price: req.body.price,
-        categoryId: req.body.categoryId,
+        title,
+        description,
+        price: Number(price),
+        categoryId,
         userId: userId,
         status: 'ACTIVE',
         condition: req.body.condition || 'NEW',
+        city: city || DEFAULT_CITY,
+        district: district || null,
+        isNegotiable: isNegotiable === true,
+        deliveryMode: deliveryMode || DEFAULT_DELIVERY_MODE,
       },
     });
 
@@ -75,7 +87,7 @@ const getListings = async (req, res) => {
           },
         },
         category: true,
-        images: true,
+        images: { orderBy: PHOTO_ORDER },
       },
       skip: parseInt(skip),
       take: parseInt(limit),
@@ -105,18 +117,46 @@ const getListings = async (req, res) => {
 // ========================================
 
 /**
+ * Le vendeur accepte-t-il d'être appelé ? Trois conditions : un numéro,
+ * VÉRIFIÉ par code SMS, et son consentement explicite (paramètre
+ * « Afficher mon numéro », désactivé par défaut).
+ */
+const sellerAcceptsCalls = (seller) =>
+  Boolean(
+    seller &&
+      typeof seller.phone === 'string' &&
+      seller.phone.length > 0 &&
+      seller.verifiedPhone === true &&
+      seller.settings?.showPhone === true,
+  );
+
+/**
  * Vendeur tel qu'il apparaît publiquement dans une annonce.
  *
  * Sécurité (OWASP API3:2023, exposition excessive de données) : le numéro
  * de téléphone n'est JAMAIS renvoyé ici, car cette route est publique et
  * permettrait à un robot de récupérer les numéros de tous les vendeurs.
- * Seul l'indicateur `canCall` est exposé ; le numéro s'obtient via
- * `GET /api/listings/:id/contact` (connexion requise, débit limité).
+ * Seuls les indicateurs `canCall` / `canWhatsapp` sont exposés ; le numéro
+ * s'obtient via `GET /api/listings/:id/contact` (connexion requise, débit
+ * limité).
  */
-const toPublicSeller = ({ phone, verifiedPhone, ...seller }) => ({
-  ...seller,
-  canCall: Boolean(phone && verifiedPhone),
-});
+const toPublicSeller = (seller) => {
+  const {
+    phone: _phone,
+    verifiedPhone: _verifiedPhone,
+    settings,
+    responseTimeMinutes,
+    responseSampleCount,
+    ...rest
+  } = seller;
+  const canCall = sellerAcceptsCalls(seller);
+  return {
+    ...rest,
+    responseTimeMinutes: publicResponseTime({ responseTimeMinutes, responseSampleCount }),
+    canCall,
+    canWhatsapp: canCall && settings?.whatsappEnabled === true,
+  };
+};
 
 const getListing = async (req, res) => {
   try {
@@ -132,13 +172,20 @@ const getListing = async (req, res) => {
             fullName: true,
             avatar: true,
             avgRating: true,
+            totalRatings: true,
+            isIdentityVerified: true,
+            // Ancienneté : « Membre depuis 2024 ».
+            createdAt: true,
+            responseTimeMinutes: true,
+            responseSampleCount: true,
             // Lus uniquement pour calculer `canCall`, jamais renvoyés.
             phone: true,
             verifiedPhone: true,
+            settings: { select: { showPhone: true, whatsappEnabled: true } },
           },
         },
         category: true,
-        images: true,
+        images: { orderBy: PHOTO_ORDER },
         ratings: true,
       },
     });
@@ -162,7 +209,9 @@ const getListing = async (req, res) => {
  *
  * Conditions (fermé par défaut) : utilisateur connecté (route protégée),
  * annonce active et non vendue, vendeur actif, numéro VÉRIFIÉ par code
- * SMS. Sinon : 404, sans préciser la raison (pas d'énumération).
+ * SMS et consentement du vendeur (« Afficher mon numéro »).
+ * Sinon : 404, sans préciser la raison (pas d'énumération).
+ * `whatsapp` indique si le vendeur accepte aussi WhatsApp.
  * La réponse n'est jamais mise en cache ; chaque consultation est
  * journalisée sans le numéro.
  */
@@ -176,7 +225,14 @@ const getListingContact = async (req, res) => {
         id: true,
         status: true,
         isSold: true,
-        user: { select: { phone: true, verifiedPhone: true, status: true } },
+        user: {
+          select: {
+            phone: true,
+            verifiedPhone: true,
+            status: true,
+            settings: { select: { showPhone: true, whatsappEnabled: true } },
+          },
+        },
       },
     });
 
@@ -187,9 +243,7 @@ const getListingContact = async (req, res) => {
       !listing.isSold &&
       seller &&
       seller.status === 'ACTIVE' &&
-      seller.verifiedPhone === true &&
-      typeof seller.phone === 'string' &&
-      seller.phone.length > 0;
+      sellerAcceptsCalls(seller);
 
     res.set('Cache-Control', 'no-store');
 
@@ -200,20 +254,120 @@ const getListingContact = async (req, res) => {
     console.info(
       `[contact] annonce=${sanitizeForLog(id)} consultée par=${sanitizeForLog(req.user.userId)}`,
     );
-    res.json({ phone: seller.phone });
+    res.json({
+      phone: seller.phone,
+      whatsapp: seller.settings.whatsappEnabled === true,
+    });
   } catch (error) {
     sendServerError(res, error, 'listingController.getListingContact');
   }
 };
 
 // ========================================
+// Similar Listings (Public)
+// ========================================
+
+const SIMILAR_DEFAULT_LIMIT = 12;
+const SIMILAR_MAX_LIMIT = 20;
+
+/** Champs d'une annonce dans une liste (même forme que le fil). */
+const LISTING_CARD_SELECT = {
+  id: true,
+  title: true,
+  price: true,
+  previousPrice: true,
+  isNegotiable: true,
+  isSold: true,
+  city: true,
+  district: true,
+  createdAt: true,
+  images: { select: { url: true }, orderBy: PHOTO_ORDER, take: 1 },
+};
+
+/**
+ * « Annonces similaires » : même catégorie, actives et non vendues,
+ * celles du même quartier d'abord, puis les plus récentes.
+ */
+const getSimilarListings = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requested = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isInteger(requested) && requested > 0
+      ? Math.min(requested, SIMILAR_MAX_LIMIT)
+      : SIMILAR_DEFAULT_LIMIT;
+
+    const listing = await prisma.listing.findUnique({
+      where: { id },
+      select: { id: true, categoryId: true, city: true, district: true },
+    });
+
+    if (!listing) {
+      return res.status(404).json({ error: 'Listing not found' });
+    }
+
+    const base = {
+      status: 'ACTIVE',
+      isSold: false,
+      categoryId: listing.categoryId,
+    };
+    const query = (where, take) =>
+      prisma.listing.findMany({
+        where: { ...base, ...where },
+        select: LISTING_CARD_SELECT,
+        orderBy: { createdAt: 'desc' },
+        take,
+      });
+
+    const nearby = listing.district
+      ? await query({ id: { not: id }, city: listing.city, district: listing.district }, limit)
+      : [];
+
+    const others = nearby.length < limit
+      ? await query({ id: { notIn: [id, ...nearby.map((item) => item.id)] } }, limit - nearby.length)
+      : [];
+
+    res.json({ listings: [...nearby, ...others] });
+  } catch (error) {
+    sendServerError(res, error, 'listingController.getSimilarListings');
+  }
+};
+
+// ========================================
 // Update Listing
 // ========================================
+
+/**
+ * Nouveau prix et ancien prix affiché (barré), comme Facebook Marketplace :
+ * - baisse : l'ancien prix devient le prix actuel ;
+ * - hausse : plus d'ancien prix (afficher « baisse » serait trompeur) ;
+ * - inchangé : rien ne bouge.
+ * L'ancien prix est toujours calculé par le serveur, jamais envoyé par le client.
+ */
+const priceChange = (listing, newPrice) => {
+  if (newPrice < listing.price) {
+    return { price: newPrice, previousPrice: listing.price };
+  }
+  if (newPrice > listing.price) {
+    return { price: newPrice, previousPrice: null };
+  }
+  return {};
+};
+
 const updateListing = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
-    const { title, description, price, categoryId, status } = req.body;
+    const {
+      title,
+      description,
+      price,
+      categoryId,
+      status,
+      city,
+      district,
+      isNegotiable,
+      deliveryMode,
+    } = req.body;
 
     // Vérifier que l'utilisateur est propriétaire
     const listing = await prisma.listing.findUnique({
@@ -234,20 +388,25 @@ const updateListing = async (req, res) => {
       data: {
         ...(title && { title }),
         ...(description && { description }),
-        ...(price && { price: parseFloat(price) }),
+        ...(price !== undefined && price !== null && priceChange(listing, parseFloat(price))),
         ...(categoryId && { categoryId }),
         ...(status && { status }),
+        ...(city && { city }),
+        // null retire le quartier.
+        ...(district !== undefined && { district: district || null }),
+        ...(typeof isNegotiable === 'boolean' && { isNegotiable }),
+        ...(deliveryMode && { deliveryMode }),
       },
     });
 
     // ✅ ENVOYER EMAIL SI ANNONCE MISE À JOUR
-    if (title || description || price) {
+    if (title || description || price !== undefined) {
       try {
         const user = await prisma.user.findUnique({ where: { id: userId } });
         const updatedFields = [];
         if (title) updatedFields.push(`Titre: ${title}`);
         if (description) updatedFields.push(`Description mise à jour`);
-        if (price) updatedFields.push(`Nouveau prix: ${price} DH`);
+        if (price !== undefined) updatedFields.push(`Nouveau prix: ${price} DH`);
 
         const html = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -296,6 +455,7 @@ const deleteListing = async (req, res) => {
     // Vérifier que l'utilisateur est propriétaire
     const listing = await prisma.listing.findUnique({
       where: { id },
+      include: { images: { select: { publicId: true } } },
     });
 
     if (!listing) {
@@ -309,6 +469,9 @@ const deleteListing = async (req, res) => {
     await prisma.listing.delete({
       where: { id },
     });
+
+    // Les lignes Image sont supprimées en cascade ; les fichiers, ici.
+    await removePhotos((listing.images ?? []).map((image) => image.publicId));
 
     res.json({ message: 'Listing deleted successfully' });
   } catch (error) {
@@ -396,6 +559,7 @@ module.exports = {
   getListings,
   getListing,
   getListingContact,
+  getSimilarListings,
   updateListing,
   deleteListing,
   markAsSold,

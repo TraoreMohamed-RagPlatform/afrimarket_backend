@@ -207,8 +207,10 @@ model Rating {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   sellerId  String
   seller    User     @relation(fields: [sellerId], references: [id], onDelete: Cascade, name: "seller")
-  listingId String
-  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  // Annonce supprimée : l'avis reste (comme sur Marketplace), sinon un
+  // vendeur effacerait ses mauvaises notes en supprimant l'annonce.
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
 
   @@unique([userId, listingId])

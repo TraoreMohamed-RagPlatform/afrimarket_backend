@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, param, query } = require('express-validator');
+const { body, param, query, validationResult } = require('express-validator');
 const ratingController = require('../controllers/ratingController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { apiLimiter } = require('../middleware/apiLimiter');
@@ -9,21 +9,42 @@ const router = express.Router();
 // Limite commune à toute l'API (voir middleware/apiLimiter.js).
 router.use(apiLimiter);
 
+// Sans ce contrôle, les règles ci-dessous seraient seulement calculées,
+// jamais appliquées.
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      error: 'Validation échouée',
+      details: errors.array().map(({ path, msg }) => ({ path, msg })),
+    });
+  }
+  return next();
+};
+
 // ========================================
 // POST /api/ratings - CREATE RATING
 // ========================================
 router.post(
   '/',
   authMiddleware,
-  body('listingId').trim().notEmpty().withMessage('listingId est requis'),
+  body('listingId')
+    .isString().withMessage('listingId est requis')
+    .bail()
+    .trim()
+    .isLength({ min: 1, max: 64 })
+    .withMessage('listingId est requis'),
   body('score')
     .isInt({ min: 1, max: 5 })
     .withMessage('La note doit être entre 1 et 5'),
   body('comment')
-    .optional()
+    .optional({ values: 'null' })
+    .isString().withMessage('Le commentaire doit être un texte')
+    .bail()
     .trim()
     .isLength({ max: 1000 })
     .withMessage('Le commentaire ne doit pas dépasser 1000 caractères'),
+  handleValidationErrors,
   ratingController.createRating
 );
 
@@ -41,6 +62,7 @@ router.get(
     .optional()
     .isInt({ min: 1, max: 100 })
     .withMessage('limit doit être entre 1 et 100'),
+  handleValidationErrors,
   ratingController.getRatingsBySeller
 );
 
@@ -58,6 +80,7 @@ router.get(
     .optional()
     .isInt({ min: 1, max: 100 })
     .withMessage('limit doit être entre 1 et 100'),
+  handleValidationErrors,
   ratingController.getRatingsForListing
 );
 
@@ -79,6 +102,7 @@ router.get(
     .optional()
     .isInt({ min: 1, max: 100 })
     .withMessage('limit doit être entre 1 et 100'),
+  handleValidationErrors,
   ratingController.getMyRatings
 );
 
@@ -94,10 +118,13 @@ router.put(
     .isInt({ min: 1, max: 5 })
     .withMessage('La note doit être entre 1 et 5'),
   body('comment')
-    .optional()
+    .optional({ values: 'null' })
+    .isString().withMessage('Le commentaire doit être un texte')
+    .bail()
     .trim()
     .isLength({ max: 1000 })
     .withMessage('Le commentaire ne doit pas dépasser 1000 caractères'),
+  handleValidationErrors,
   ratingController.updateRating
 );
 
@@ -108,6 +135,7 @@ router.delete(
   '/:ratingId',
   authMiddleware,
   param('ratingId').trim().notEmpty().withMessage('ratingId est requis'),
+  handleValidationErrors,
   ratingController.deleteRating
 );
 

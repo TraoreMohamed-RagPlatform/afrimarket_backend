@@ -18,7 +18,8 @@ const getUserProfile = async (req, res) => {
         fullName: true,
         avatar: true,
         bio: true,
-        phone: true,
+        // Pas de téléphone : profil public (OWASP API3:2023). Le numéro
+        // passe par GET /api/listings/:id/contact (connexion requise).
         location: true,
         role: true,
         avgRating: true,

@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const { sendEmail } = require('../utils/emailService');
 const { sendServerError } = require('../utils/httpErrors');
 const { escapeHtml } = require('../utils/html');
+const { sanitizeForLog } = require('../utils/logSafe');
 
 const prisma = new PrismaClient();
 
@@ -102,6 +103,21 @@ const getListings = async (req, res) => {
 // ========================================
 // Get Single Listing
 // ========================================
+
+/**
+ * Vendeur tel qu'il apparaît publiquement dans une annonce.
+ *
+ * Sécurité (OWASP API3:2023, exposition excessive de données) : le numéro
+ * de téléphone n'est JAMAIS renvoyé ici, car cette route est publique et
+ * permettrait à un robot de récupérer les numéros de tous les vendeurs.
+ * Seul l'indicateur `canCall` est exposé ; le numéro s'obtient via
+ * `GET /api/listings/:id/contact` (connexion requise, débit limité).
+ */
+const toPublicSeller = ({ phone, verifiedPhone, ...seller }) => ({
+  ...seller,
+  canCall: Boolean(phone && verifiedPhone),
+});
+
 const getListing = async (req, res) => {
   try {
     const { id } = req.params;
@@ -116,7 +132,9 @@ const getListing = async (req, res) => {
             fullName: true,
             avatar: true,
             avgRating: true,
+            // Lus uniquement pour calculer `canCall`, jamais renvoyés.
             phone: true,
+            verifiedPhone: true,
           },
         },
         category: true,
@@ -129,9 +147,62 @@ const getListing = async (req, res) => {
       return res.status(404).json({ error: 'Listing not found' });
     }
 
-    res.json({ listing });
+    res.json({ listing: { ...listing, user: toPublicSeller(listing.user) } });
   } catch (error) {
     sendServerError(res, error, 'listingController.getListing');
+  }
+};
+
+// ========================================
+// Get Seller Contact (Protected)
+// ========================================
+
+/**
+ * Numéro du vendeur, pour le bouton « Appeler » / WhatsApp.
+ *
+ * Conditions (fermé par défaut) : utilisateur connecté (route protégée),
+ * annonce active et non vendue, vendeur actif, numéro VÉRIFIÉ par code
+ * SMS. Sinon : 404, sans préciser la raison (pas d'énumération).
+ * La réponse n'est jamais mise en cache ; chaque consultation est
+ * journalisée sans le numéro.
+ */
+const getListingContact = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const listing = await prisma.listing.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        isSold: true,
+        user: { select: { phone: true, verifiedPhone: true, status: true } },
+      },
+    });
+
+    const seller = listing?.user;
+    const available =
+      listing &&
+      listing.status === 'ACTIVE' &&
+      !listing.isSold &&
+      seller &&
+      seller.status === 'ACTIVE' &&
+      seller.verifiedPhone === true &&
+      typeof seller.phone === 'string' &&
+      seller.phone.length > 0;
+
+    res.set('Cache-Control', 'no-store');
+
+    if (!available) {
+      return res.status(404).json({ error: 'Contact not available' });
+    }
+
+    console.info(
+      `[contact] annonce=${sanitizeForLog(id)} consultée par=${sanitizeForLog(req.user.userId)}`,
+    );
+    res.json({ phone: seller.phone });
+  } catch (error) {
+    sendServerError(res, error, 'listingController.getListingContact');
   }
 };
 
@@ -324,6 +395,7 @@ module.exports = {
   createListing,
   getListings,
   getListing,
+  getListingContact,
   updateListing,
   deleteListing,
   markAsSold,

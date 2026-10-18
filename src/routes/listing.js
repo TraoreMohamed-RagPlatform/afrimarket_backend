@@ -5,6 +5,7 @@ const {
   createListing,
   getListings,
   getListing,
+  getListingContact,
   updateListing,
   deleteListing,
   markAsSold
@@ -31,6 +32,21 @@ const listingGeneralLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 30, // Maximum 30 requêtes par minute
   message: 'Trop de requêtes, veuillez réessayer plus tard.',
+});
+
+// Numéro du vendeur : par UTILISATEUR (pas par adresse IP), après
+// l'authentification. Assez pour un usage normal, trop peu pour aspirer
+// les numéros de la plateforme.
+const CONTACT_WINDOW_MS = 60 * 60 * 1000; // 1 heure
+const CONTACT_MAX_REQUESTS = 20;
+
+const listingContactLimiter = rateLimit({
+  windowMs: CONTACT_WINDOW_MS,
+  limit: CONTACT_MAX_REQUESTS,
+  keyGenerator: (req) => `user:${req.user.userId}`,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
 });
 
 // ===== Validation Middleware =====
@@ -112,6 +128,14 @@ router.get(
   '/:id',
   listingGeneralLimiter, // Rate limiting
   getListing
+);
+
+// 📞 GET /api/listings/:id/contact - Numéro du vendeur (connexion requise)
+router.get(
+  '/:id/contact',
+  authMiddleware, // Authentification requise
+  listingContactLimiter, // Limite par utilisateur
+  getListingContact
 );
 
 // ✏️ PUT /api/listings/:id - Mettre à jour une liste

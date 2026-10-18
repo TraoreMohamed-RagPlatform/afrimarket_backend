@@ -122,76 +122,116 @@ const updateMyProfile = async (req, res) => {
 };
 
 // ========================================
-// Get My Settings (Protected)
+// Settings (Protected)
 // ========================================
+
+/** Valeurs par défaut, tant que l'utilisateur n'a rien enregistré. */
+const DEFAULT_SETTINGS = Object.freeze({
+  showPhone: false,
+  whatsappEnabled: false,
+  messageAlerts: true,
+  listingAlerts: true,
+  ratingAlerts: true,
+});
+
+/** Champs modifiables : chemin dans le corps de la requête → colonne. */
+const SETTINGS_FIELDS = Object.freeze({
+  'privacy.showPhoneNumber': 'showPhone',
+  'privacy.whatsappEnabled': 'whatsappEnabled',
+  'notifications.messageAlerts': 'messageAlerts',
+  'notifications.listingAlerts': 'listingAlerts',
+  'notifications.ratingAlerts': 'ratingAlerts',
+});
+
+const SETTINGS_SELECT = Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((key) => [key, true]));
+
+/** Paramètres de l'utilisateur (format de réponse de l'API), ou null. */
+const loadSettings = async (userId) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      status: true,
+      verifiedEmail: true,
+      verifiedPhone: true,
+      settings: { select: SETTINGS_SELECT },
+    },
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const stored = { ...DEFAULT_SETTINGS, ...(user.settings ?? {}) };
+  return {
+    accountEmail: user.email,
+    accountStatus: user.status,
+    role: user.role,
+    emailVerified: user.verifiedEmail,
+    // Le numéro n'est proposé aux acheteurs que s'il est vérifié ET partagé.
+    phoneVerified: user.verifiedPhone,
+    notifications: {
+      messageAlerts: stored.messageAlerts,
+      listingAlerts: stored.listingAlerts,
+      ratingAlerts: stored.ratingAlerts,
+    },
+    privacy: {
+      showPhoneNumber: stored.showPhone,
+      whatsappEnabled: stored.whatsappEnabled,
+    },
+  };
+};
+
 const getMySettings = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const settings = await loadSettings(req.user.userId);
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        status: true,
-        verifiedEmail: true,
-      },
-    });
-
-    if (!user) {
+    if (!settings) {
       return res.status(404).json({ error: 'Utilisateur non trouvé' });
     }
 
-    res.json({
-      settings: {
-        accountEmail: user.email,
-        accountStatus: user.status,
-        role: user.role,
-        emailVerified: user.verifiedEmail,
-        notifications: {
-          messageAlerts: true,
-          listingAlerts: true,
-          ratingAlerts: true,
-        },
-        privacy: {
-          profileVisibility: 'public',
-          showPhoneNumber: false,
-          showListings: true,
-        },
-      },
-    });
+    res.json({ settings });
   } catch (error) {
     sendServerError(res, error, 'userController.getMySettings');
   }
 };
 
-// ========================================
-// Update My Settings (Protected)
-// ========================================
-const updateMySettings = (req, res) => {
+/**
+ * Enregistre les paramètres envoyés (les autres restent inchangés).
+ * Les valeurs sont validées par la route (booléens uniquement).
+ */
+const updateMySettings = async (req, res) => {
   try {
-    const { notifications, privacy } = req.body;
+    const userId = req.user.userId;
 
-    // Pour maintenant, on retourne une réponse simple
-    // En phase future, on peut stocker ces settings dans une table Settings
+    const data = {};
+    for (const [bodyPath, column] of Object.entries(SETTINGS_FIELDS)) {
+      const [group, key] = bodyPath.split('.');
+      const value = req.body?.[group]?.[key];
+      if (typeof value === 'boolean') {
+        data[column] = value;
+      }
+    }
+
+    const exists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!exists) {
+      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    }
+
+    await prisma.userSettings.upsert({
+      where: { userId },
+      create: { userId, ...data },
+      update: data,
+    });
+
     res.json({
       message: 'Paramètres mis à jour avec succès',
-      settings: {
-        notifications: notifications || {
-          messageAlerts: true,
-          listingAlerts: true,
-          ratingAlerts: true,
-        },
-        privacy: privacy || {
-          profileVisibility: 'public',
-          showPhoneNumber: false,
-          showListings: true,
-        },
-      },
+      settings: await loadSettings(userId),
     });
   } catch (error) {
-    sendServerError(res, error, 'userController.getMySettings');
+    sendServerError(res, error, 'userController.updateMySettings');
   }
 };
 

@@ -36,6 +36,7 @@ const listingWithSeller = (seller = {}) => ({
     avgRating: 4.8,
     phone: PHONE,
     verifiedPhone: true,
+    settings: { showPhone: true, whatsappEnabled: false },
     ...seller,
   },
   category: { id: 'c1', name: 'Mobilier' },
@@ -49,7 +50,13 @@ const contactRow = ({ listing = {}, seller = {} } = {}) => ({
   status: 'ACTIVE',
   isSold: false,
   ...listing,
-  user: { phone: PHONE, verifiedPhone: true, status: 'ACTIVE', ...seller },
+  user: {
+    phone: PHONE,
+    verifiedPhone: true,
+    status: 'ACTIVE',
+    settings: { showPhone: true, whatsappEnabled: false },
+    ...seller,
+  },
 });
 
 describe('Numéro du vendeur : jamais exposé publiquement', () => {
@@ -73,7 +80,9 @@ describe('Numéro du vendeur : jamais exposé publiquement', () => {
       expect(res.status).toBe(200);
       expect(res.body.listing.user).not.toHaveProperty('phone');
       expect(res.body.listing.user).not.toHaveProperty('verifiedPhone');
+      expect(res.body.listing.user).not.toHaveProperty('settings');
       expect(res.body.listing.user.canCall).toBe(true);
+      expect(res.body.listing.user.canWhatsapp).toBe(false);
       expect(JSON.stringify(res.body)).not.toContain(PHONE);
     });
 
@@ -86,6 +95,37 @@ describe('Numéro du vendeur : jamais exposé publiquement', () => {
 
       expect(res.body.listing.user.canCall).toBe(false);
       expect(JSON.stringify(res.body)).not.toContain(PHONE);
+    });
+
+    test('sans consentement du vendeur : canCall à false', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(
+        listingWithSeller({ settings: null }),
+      );
+
+      const res = await request(buildApp()).get('/api/listings/listing-1');
+
+      expect(res.body.listing.user.canCall).toBe(false);
+      expect(res.body.listing.user.canWhatsapp).toBe(false);
+    });
+
+    test('WhatsApp activé : canWhatsapp à true', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(
+        listingWithSeller({ settings: { showPhone: true, whatsappEnabled: true } }),
+      );
+
+      const res = await request(buildApp()).get('/api/listings/listing-1');
+
+      expect(res.body.listing.user.canWhatsapp).toBe(true);
+    });
+
+    test('WhatsApp activé mais numéro non partagé : canWhatsapp à false', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(
+        listingWithSeller({ settings: { showPhone: false, whatsappEnabled: true } }),
+      );
+
+      const res = await request(buildApp()).get('/api/listings/listing-1');
+
+      expect(res.body.listing.user.canWhatsapp).toBe(false);
     });
 
     test('sans numéro : canCall à false', async () => {
@@ -128,8 +168,20 @@ describe('Numéro du vendeur : jamais exposé publiquement', () => {
         .set('Authorization', bearerFor('buyer-1'));
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ phone: PHONE });
+      expect(res.body).toEqual({ phone: PHONE, whatsapp: false });
       expect(res.headers['cache-control']).toBe('no-store');
+    });
+
+    test('WhatsApp autorisé par le vendeur : whatsapp à true', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(
+        contactRow({ seller: { settings: { showPhone: true, whatsappEnabled: true } } }),
+      );
+
+      const res = await request(buildApp())
+        .get('/api/listings/listing-1/contact')
+        .set('Authorization', bearerFor('buyer-1'));
+
+      expect(res.body).toEqual({ phone: PHONE, whatsapp: true });
     });
 
     test('la consultation est journalisée, sans le numéro', async () => {
@@ -149,6 +201,11 @@ describe('Numéro du vendeur : jamais exposé publiquement', () => {
       ['annonce introuvable', null],
       ['numéro non vérifié', contactRow({ seller: { verifiedPhone: false } })],
       ['pas de numéro', contactRow({ seller: { phone: null } })],
+      ['vendeur sans consentement', contactRow({ seller: { settings: null } })],
+      [
+        'consentement retiré',
+        contactRow({ seller: { settings: { showPhone: false, whatsappEnabled: true } } }),
+      ],
       ['annonce vendue', contactRow({ listing: { isSold: true } })],
       ['annonce inactive', contactRow({ listing: { status: 'DELETED' } })],
       ['vendeur supprimé', contactRow({ seller: { status: 'DELETED' } })],

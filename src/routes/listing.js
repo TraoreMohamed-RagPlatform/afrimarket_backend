@@ -6,6 +6,7 @@ const {
   getListings,
   getListing,
   getListingContact,
+  getSimilarListings,
   updateListing,
   deleteListing,
   markAsSold
@@ -14,6 +15,21 @@ const authMiddleware = require('../middleware/authMiddleware');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { apiLimiter } = require('../middleware/apiLimiter');
+const {
+  uploadListingImages,
+  deleteListingImage,
+  reorderListingImages,
+} = require('../controllers/listingImageController');
+const { reportListing } = require('../controllers/listingReportController');
+const { uploadListingPhotos } = require('../middleware/uploadMiddleware');
+const {
+  CITIES,
+  DEFAULT_CITY,
+  isKnownDistrict,
+  DELIVERY_MODES,
+  REPORT_REASONS,
+  MAX_LISTING_PHOTOS,
+} = require('../config/listingOptions');
 
 const router = express.Router();
 
@@ -49,7 +65,46 @@ const listingContactLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 
+// Limites par UTILISATEUR (après l'authentification).
+const perUserLimiter = (windowMs, limit) =>
+  rateLimit({
+    windowMs,
+    limit,
+    keyGenerator: (req) => `user:${req.user.userId}`,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' },
+  });
+
+const HOUR_MS = 60 * 60 * 1000;
+// Signalements : assez pour un usage honnête, pas pour inonder la modération.
+const listingReportLimiter = perUserLimiter(HOUR_MS, 10);
+// Photos : 10 par annonce, quelques annonces par heure.
+const listingPhotoLimiter = perUserLimiter(HOUR_MS, 60);
+
 // ===== Validation Middleware =====
+
+/** Champs communs à la création et à la modification (A1, A2, A9). */
+const listingDetailsRules = [
+  body('city')
+    .optional()
+    .isIn(Object.keys(CITIES)).withMessage('Ville inconnue'),
+
+  // null (ou absent) : pas de quartier.
+  body('district')
+    .optional({ values: 'null' })
+    .custom((district, { req }) => isKnownDistrict(req.body.city ?? DEFAULT_CITY, district))
+    .withMessage('Quartier inconnu'),
+
+  body('isNegotiable')
+    .optional()
+    .custom((value) => typeof value === 'boolean').withMessage('isNegotiable doit être un booléen'),
+
+  body('deliveryMode')
+    .optional()
+    .isIn(DELIVERY_MODES).withMessage('Mode de remise inconnu'),
+];
+
 const validateCreateListing = [
   body('title')
     .trim()
@@ -69,6 +124,8 @@ const validateCreateListing = [
     .notEmpty().withMessage('La catégorie est requise')
     .trim()
     .isLength({ min: 1 }).withMessage('L\'ID de catégorie est invalide'),
+
+  ...listingDetailsRules,
 ];
 
 const validateUpdateListing = [
@@ -90,6 +147,32 @@ const validateUpdateListing = [
     .optional()
     .trim()
     .isLength({ min: 1 }).withMessage('L\'ID de catégorie est invalide'),
+
+  // La vente passe par /mark-sold ; les autres statuts sont réservés au serveur.
+  body('status')
+    .optional()
+    .isIn(['ACTIVE', 'INACTIVE']).withMessage('Statut invalide'),
+
+  ...listingDetailsRules,
+];
+
+const validateReport = [
+  body('reason')
+    .isIn(REPORT_REASONS).withMessage('Motif de signalement inconnu'),
+
+  body('details')
+    .optional({ values: 'null' })
+    .isString().withMessage('Le détail doit être un texte')
+    .trim()
+    .isLength({ max: 500 }).withMessage('Le détail ne doit pas dépasser 500 caractères'),
+];
+
+const validateImageOrder = [
+  body('imageIds')
+    .isArray({ min: 1, max: MAX_LISTING_PHOTOS }).withMessage('imageIds doit être une liste de photos'),
+
+  body('imageIds.*')
+    .isString().withMessage('Identifiant de photo invalide'),
 ];
 
 // ===== Middleware de validation =====
@@ -136,6 +219,50 @@ router.get(
   authMiddleware, // Authentification requise
   listingContactLimiter, // Limite par utilisateur
   getListingContact
+);
+
+// 🔁 GET /api/listings/:id/similar - Annonces similaires (public)
+router.get(
+  '/:id/similar',
+  listingGeneralLimiter,
+  getSimilarListings
+);
+
+// 🚩 POST /api/listings/:id/report - Signaler une annonce (connexion requise)
+router.post(
+  '/:id/report',
+  authMiddleware,
+  listingReportLimiter,
+  validateReport,
+  handleValidationErrors,
+  reportListing
+);
+
+// 🖼️ POST /api/listings/:id/images - Ajouter des photos (multipart, champ « images »)
+router.post(
+  '/:id/images',
+  authMiddleware,
+  listingPhotoLimiter,
+  uploadListingPhotos,
+  uploadListingImages
+);
+
+// 🔀 PUT /api/listings/:id/images/order - Réordonner les photos
+router.put(
+  '/:id/images/order',
+  authMiddleware,
+  listingGeneralLimiter,
+  validateImageOrder,
+  handleValidationErrors,
+  reorderListingImages
+);
+
+// 🗑️ DELETE /api/listings/:id/images/:imageId - Supprimer une photo
+router.delete(
+  '/:id/images/:imageId',
+  authMiddleware,
+  listingGeneralLimiter,
+  deleteListingImage
 );
 
 // ✏️ PUT /api/listings/:id - Mettre à jour une liste

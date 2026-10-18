@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendMessageReceivedEmail } = require('../utils/emailTemplates');
 const { sendServerError } = require('../utils/httpErrors');
+const { recordReply } = require('../services/responseTime');
 
 const prisma = new PrismaClient();
 
@@ -92,6 +93,19 @@ const sendMessage = async (req, res) => {
           conversationId,
         },
       });
+
+      // Temps de réponse habituel (« Répond en moins d'une heure »).
+      // Jamais bloquant : le message est déjà envoyé.
+      try {
+        await recordReply({
+          prisma,
+          responderId: userId,
+          previousMessage: conversation.messages[0],
+          now: message.createdAt instanceof Date ? message.createdAt : new Date(),
+        });
+      } catch (responseTimeError) {
+        console.warn('⚠️ Temps de réponse non mis à jour:', responseTimeError.message);
+      }
 
       // Mettre à jour lastMessageAt de la conversation
       await prisma.conversation.update({

@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendServerError } = require('../utils/httpErrors');
+const { locationOptions, DELIVERY_MODES, REPORT_REASONS } = require('../config/listingOptions');
 
 const prisma = new PrismaClient();
 
@@ -165,6 +166,10 @@ const getFilterOptions = async (req, res) => {
           avg: priceStats._avg.price || 500
         },
         conditions,
+        // Villes et quartiers (liste fixe), modes de remise, motifs de signalement.
+        locations: locationOptions(),
+        deliveryModes: DELIVERY_MODES,
+        reportReasons: REPORT_REASONS,
         sortOptions: [
           { value: 'date_newest', label: 'Plus récent' },
           { value: 'date_oldest', label: 'Plus ancien' },

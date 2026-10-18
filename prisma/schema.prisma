@@ -33,6 +33,14 @@ model User {
   verifiedAt            DateTime?
   trustScore            Int      @default(50)
 
+  // Temps de réponse habituel aux messages (moyenne glissante, en minutes).
+  // Affiché seulement à partir de quelques réponses (voir services/responseTime.js).
+  responseTimeMinutes   Int?
+  responseSampleCount   Int      @default(0)
+
+  settings        UserSettings?
+  listingReports  ListingReport[]
+
   listings        Listing[]
   messages        Message[]
   ratings         Rating[]
@@ -68,10 +76,21 @@ model Listing {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   views       Int      @default(0)
+
+  // Lieu : identifiants des listes fixes de src/config/listingOptions.js.
+  city          String   @default("casablanca")
+  district      String?
+  isNegotiable  Boolean  @default(false)
+  // Prix avant la dernière baisse (barré dans l'app). Rempli par le serveur.
+  previousPrice Float?
+  // PICKUP (main propre), DELIVERY (livraison) ou BOTH.
+  deliveryMode  String   @default("PICKUP")
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   images        Image[]
+  reports       ListingReport[]
   messages      Message[]
   ratings       Rating[]
   favorites     Favorite[]
@@ -81,6 +100,7 @@ model Listing {
   @@index([categoryId])
   @@index([status])
   @@index([createdAt])
+  @@index([city, district])
 }
 
 model Image {
@@ -89,9 +109,43 @@ model Image {
   publicId  String?
   listingId String
   listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  // Ordre d'affichage : 0 = photo principale.
+  position  Int      @default(0)
   createdAt DateTime @default(now())
 
   @@index([listingId])
+  @@index([listingId, position])
+}
+
+// Paramètres de l'utilisateur. Absents = valeurs par défaut.
+// Le numéro n'est jamais montré sans consentement explicite (showPhone).
+model UserSettings {
+  userId          String   @id
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  showPhone       Boolean  @default(false)
+  whatsappEnabled Boolean  @default(false)
+  messageAlerts   Boolean  @default(true)
+  listingAlerts   Boolean  @default(true)
+  ratingAlerts    Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
+
+// Signalement d'une annonce par un utilisateur (un seul par annonce et par personne).
+model ListingReport {
+  id          String   @id @default(cuid())
+  listingId   String
+  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reporterId  String
+  reporter    User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reason      String   // voir REPORT_REASONS
+  details     String?
+  status      String   @default("OPEN") // OPEN, REVIEWED, DISMISSED
+  createdAt   DateTime @default(now())
+
+  @@unique([listingId, reporterId])
+  @@index([reporterId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Category {

@@ -5,6 +5,7 @@ const helmet = require('helmet');
 
 const prisma = require('./lib/prisma');
 const errorHandler = require('./middleware/errorHandler');
+const { LISTING_PHOTOS_DIR, LISTING_PHOTOS_URL_PREFIX } = require('./services/listingPhotos');
 
 const authRoutes = require('./routes/auth');
 const listingRoutes = require('./routes/listing');
@@ -48,6 +49,25 @@ const createApp = ({ corsOrigins = [] } = {}) => {
   app.use(cors(buildCorsOptions(corsOrigins)));
   app.use(compression());
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
+
+  // Photos des annonces : SEUL dossier de fichiers servi publiquement.
+  // Jamais « uploads » entier : les pièces d'identité (KYC) y sont rangées.
+  app.use(
+    LISTING_PHOTOS_URL_PREFIX,
+    (req, res, next) => {
+      // Affichables depuis l'application web (autre origine que l'API).
+      res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+      next();
+    },
+    express.static(LISTING_PHOTOS_DIR, {
+      index: false,
+      dotfiles: 'deny',
+      redirect: false,
+      // Noms aléatoires jamais réutilisés : le cache peut être long.
+      immutable: true,
+      maxAge: '30d',
+    }),
+  );
 
   app.use('/api/auth', authRoutes);
   app.use('/api/listings', listingRoutes);

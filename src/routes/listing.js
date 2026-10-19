@@ -12,6 +12,7 @@ const {
   markAsSold
 } = require('../controllers/listingController');
 const authMiddleware = require('../middleware/authMiddleware');
+const optionalAuth = require('../middleware/optionalAuth');
 const { body, query, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { apiLimiter } = require('../middleware/apiLimiter');
@@ -266,6 +267,7 @@ router.get(
 router.get(
   '/:id',
   listingGeneralLimiter, // Rate limiting
+  optionalAuth, // Connexion facultative : « isOwner »
   getListing
 );
 

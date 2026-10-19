@@ -26,9 +26,20 @@ const initializeFirebase = () => {
     const serviceAccount = JSON.parse(serviceAccountJSON);
 
     // Initialiser Firebase avec la bonne syntax
+    // Le projet est celui du compte de service : une valeur différente dans
+    // FIREBASE_PROJECT_ID ferait refuser toutes les preuves App Check.
+    const projectId = serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID;
+    if (
+      process.env.FIREBASE_PROJECT_ID &&
+      serviceAccount.project_id &&
+      process.env.FIREBASE_PROJECT_ID !== serviceAccount.project_id
+    ) {
+      console.warn('⚠️ FIREBASE_PROJECT_ID ne correspond pas au compte de service : ce dernier est utilisé.');
+    }
+
     admin.initializeApp({
       credential: admin.cert(serviceAccount),
-      projectId: process.env.FIREBASE_PROJECT_ID
+      projectId,
     });
 
     firebaseInitialized = true;

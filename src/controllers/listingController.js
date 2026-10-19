@@ -233,11 +233,19 @@ const getListing = async (req, res) => {
       },
     });
 
-    if (!listing) {
+    const isOwner = req.user?.userId === listing?.userId;
+
+    // Annonce masquée (INACTIVE) : visible seulement par son vendeur.
+    if (!listing || (listing.status === 'INACTIVE' && !isOwner)) {
       return res.status(404).json({ error: 'Listing not found' });
     }
 
-    res.json({ listing: { ...listing, user: toPublicSeller(listing.user) } });
+    res.json({
+      listing: { ...listing, user: toPublicSeller(listing.user) },
+      // Personne connectée = vendeur : l'app affiche ses actions de vendeur
+      // au lieu de « Écrire au vendeur ».
+      isOwner,
+    });
   } catch (error) {
     sendServerError(res, error, 'listingController.getListing');
   }

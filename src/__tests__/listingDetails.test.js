@@ -11,7 +11,7 @@ const mockPrisma = {
     update: jest.fn(),
     aggregate: jest.fn(),
   },
-  category: { findMany: jest.fn() },
+  category: { findMany: jest.fn(), findUnique: jest.fn() },
   user: { findUnique: jest.fn() },
 };
 jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn(() => mockPrisma) }));
@@ -37,6 +37,7 @@ const validListing = (extra = {}) => ({
   description: 'Très bon état, à récupérer sur place.',
   price: 1200,
   categoryId: 'c1',
+  district: 'maarif',
   ...extra,
 });
 
@@ -59,23 +60,46 @@ describe('Détails d’une annonce (quartier, négociable, remise, ancien prix)'
     mockPrisma.listing.create.mockImplementation(({ data }) => Promise.resolve({ id: 'new', ...data }));
     mockPrisma.listing.update.mockImplementation(({ data }) => Promise.resolve({ id: 'listing-1', ...data }));
     mockPrisma.user.findUnique.mockResolvedValue({ id: OWNER, username: 'aminata', email: 'a@example.com' });
+    mockPrisma.category.findUnique.mockResolvedValue({ id: 'c1' });
   });
 
   describe('POST /api/listings', () => {
     const create = (body) =>
       request(buildApp()).post('/api/listings').set('Authorization', bearerFor(OWNER)).send(body);
 
-    test('valeurs par défaut : Casablanca, sans quartier, non négociable, main propre', async () => {
+    test('valeurs par défaut : Casablanca, publiée, neuf, non négociable, main propre', async () => {
       const res = await create(validListing());
 
       expect(res.status).toBe(201);
       expect(mockPrisma.listing.create.mock.calls[0][0].data).toMatchObject({
         city: 'casablanca',
-        district: null,
+        district: 'maarif',
+        status: 'ACTIVE',
+        condition: 'NEW',
         isNegotiable: false,
         deliveryMode: 'PICKUP',
         price: 1200,
       });
+    });
+
+    test('créée masquée (INACTIVE) le temps d’envoyer les photos', async () => {
+      const res = await create(validListing({ status: 'INACTIVE', condition: 'GOOD' }));
+
+      expect(res.status).toBe(201);
+      expect(mockPrisma.listing.create.mock.calls[0][0].data).toMatchObject({
+        status: 'INACTIVE',
+        condition: 'GOOD',
+      });
+    });
+
+    test('catégorie inexistante : 400, rien n’est créé', async () => {
+      mockPrisma.category.findUnique.mockResolvedValue(null);
+
+      const res = await create(validListing({ categoryId: 'inconnue' }));
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Catégorie inconnue');
+      expect(mockPrisma.listing.create).not.toHaveBeenCalled();
     });
 
     test('quartier, négociable et livraison enregistrés', async () => {
@@ -109,6 +133,13 @@ describe('Détails d’une annonce (quartier, négociable, remise, ancien prix)'
       ['ville inconnue', { city: 'paris' }],
       ['négociable en texte', { isNegotiable: 'true' }],
       ['mode de remise inconnu', { deliveryMode: 'DRONE' }],
+      ['quartier absent', { district: undefined }],
+      ['quartier nul', { district: null }],
+      ['état inconnu', { condition: 'EXCELLENT' }],
+      ['statut « vendue » à la création', { status: 'SOLD' }],
+      ['statut « réservée » à la création', { status: 'RESERVED' }],
+      ['prix démesuré', { price: 1e12 }],
+      ['catégorie non texte', { categoryId: { $ne: null } }],
     ])('%s : 400', async (_name, extra) => {
       const res = await create(validListing(extra));
 

@@ -6,6 +6,7 @@ const { sanitizeForLog } = require('../utils/logSafe');
 const {
   DEFAULT_CITY,
   DEFAULT_DELIVERY_MODE,
+  DEFAULT_CONDITION,
   FEED_STATUSES,
   FEED_SORTS,
   DEFAULT_FEED_SORT,
@@ -31,7 +32,16 @@ const createListing = async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const { city, district, isNegotiable, deliveryMode } = req.body;
+    const { city, district, isNegotiable, deliveryMode, condition, status } = req.body;
+
+    // Catégorie inexistante : refus clair plutôt qu'une erreur de clé étrangère.
+    const category = await prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { id: true },
+    });
+    if (!category) {
+      return res.status(400).json({ error: 'Catégorie inconnue' });
+    }
 
     const listing = await prisma.listing.create({
       data: {
@@ -40,8 +50,9 @@ const createListing = async (req, res) => {
         price: Number(price),
         categoryId,
         userId: userId,
-        status: 'ACTIVE',
-        condition: req.body.condition || 'NEW',
+        // Validé par la route : ACTIVE (par défaut) ou INACTIVE.
+        status: status || 'ACTIVE',
+        condition: condition || DEFAULT_CONDITION,
         city: city || DEFAULT_CITY,
         district: district || null,
         isNegotiable: isNegotiable === true,
@@ -399,6 +410,7 @@ const updateListing = async (req, res) => {
       district,
       isNegotiable,
       deliveryMode,
+      condition,
     } = req.body;
 
     // Vérifier que l'utilisateur est propriétaire
@@ -415,6 +427,16 @@ const updateListing = async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
+    if (categoryId) {
+      const category = await prisma.category.findUnique({
+        where: { id: categoryId },
+        select: { id: true },
+      });
+      if (!category) {
+        return res.status(400).json({ error: 'Catégorie inconnue' });
+      }
+    }
+
     const updatedListing = await prisma.listing.update({
       where: { id },
       data: {
@@ -428,6 +450,7 @@ const updateListing = async (req, res) => {
         ...(district !== undefined && { district: district || null }),
         ...(typeof isNegotiable === 'boolean' && { isNegotiable }),
         ...(deliveryMode && { deliveryMode }),
+        ...(condition && { condition }),
       },
     });
 

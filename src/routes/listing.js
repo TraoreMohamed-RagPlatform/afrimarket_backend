@@ -31,6 +31,9 @@ const {
   MAX_LISTING_PHOTOS,
   OWNER_SETTABLE_STATUSES,
   FEED_SORTS,
+  CONDITIONS,
+  CREATE_STATUSES,
+  MAX_PRICE,
 } = require('../config/listingOptions');
 
 const router = express.Router();
@@ -39,11 +42,20 @@ const router = express.Router();
 router.use(apiLimiter);
 
 // ===== Rate Limiters pour Listings =====
+// Publication : 10 annonces par heure et par UTILISATEUR (après
+// l'authentification). Une demande refusée (formulaire invalide) n'est pas
+// comptée : corriger une erreur de saisie ne bloque pas le vendeur.
+const LISTING_CREATE_WINDOW_MS = 60 * 60 * 1000;
+const LISTING_CREATE_MAX = 10;
+
 const listingCreateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 heure
-  max: 10, // Maximum 10 créations par heure
-  message: 'Trop de listes créées, veuillez réessayer plus tard.',
-  skipSuccessfulRequests: false,
+  windowMs: LISTING_CREATE_WINDOW_MS,
+  limit: LISTING_CREATE_MAX,
+  keyGenerator: (req) => `user:${req.user.userId}`,
+  skipFailedRequests: true,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Trop d’annonces publiées, veuillez réessayer plus tard.' },
 });
 
 const listingGeneralLimiter = rateLimit({
@@ -105,6 +117,10 @@ const listingDetailsRules = [
   body('deliveryMode')
     .optional()
     .isIn(DELIVERY_MODES).withMessage('Mode de remise inconnu'),
+
+  body('condition')
+    .optional()
+    .isIn(CONDITIONS).withMessage('État inconnu'),
 ];
 
 const validateCreateListing = [
@@ -120,12 +136,23 @@ const validateCreateListing = [
   
   body('price')
     .notEmpty().withMessage('Le prix est requis')
-    .isFloat({ min: 0 }).withMessage('Le prix doit être un nombre positif'),
+    .isFloat({ min: 0, max: MAX_PRICE }).withMessage('Le prix doit être un nombre positif'),
   
   body('categoryId')
-    .notEmpty().withMessage('La catégorie est requise')
+    .isString().withMessage('La catégorie est requise')
+    .bail()
     .trim()
-    .isLength({ min: 1 }).withMessage('L\'ID de catégorie est invalide'),
+    .isLength({ min: 1, max: 64 }).withMessage('L\'ID de catégorie est invalide'),
+
+  // Le quartier est obligatoire à la publication (l'acheteur doit savoir
+  // où se trouve l'article) ; sa validité est vérifiée par listingDetailsRules.
+  body('district')
+    .exists({ values: 'null' }).withMessage('Le quartier est requis'),
+
+  // Masquée (INACTIVE) le temps d'envoyer les photos, ou publiée directement.
+  body('status')
+    .optional()
+    .isIn(CREATE_STATUSES).withMessage('Statut invalide'),
 
   ...listingDetailsRules,
 ];
@@ -143,7 +170,7 @@ const validateUpdateListing = [
   
   body('price')
     .optional()
-    .isFloat({ min: 0 }).withMessage('Le prix doit être un nombre positif'),
+    .isFloat({ min: 0, max: MAX_PRICE }).withMessage('Le prix doit être un nombre positif'),
   
   body('categoryId')
     .optional()

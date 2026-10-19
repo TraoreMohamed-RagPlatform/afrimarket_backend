@@ -126,6 +126,20 @@ const CATEGORIES = Object.freeze([
   { slug: 'autres', name: 'Autres', icon: 'megaphone', description: 'Tout le reste' },
 ]);
 
+/** État de l'article (même liste que l'app mobile). */
+const CONDITIONS = Object.freeze(['NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'POOR']);
+const DEFAULT_CONDITION = 'NEW';
+
+/**
+ * Statuts possibles à la création. `INACTIVE` : l'app crée l'annonce
+ * masquée, envoie les photos, puis la publie (jamais d'annonce sans photo
+ * dans le fil).
+ */
+const CREATE_STATUSES = Object.freeze(['ACTIVE', 'INACTIVE']);
+
+/** Prix maximal accepté (DH) : protège contre les valeurs absurdes. */
+const MAX_PRICE = 100000000;
+
 /** Nombre maximal de photos par annonce (comme Facebook Marketplace). */
 const MAX_LISTING_PHOTOS = 10;
 
@@ -139,6 +153,10 @@ module.exports = {
   DEFAULT_DELIVERY_MODE,
   REPORT_REASONS,
   MAX_LISTING_PHOTOS,
+  CONDITIONS,
+  DEFAULT_CONDITION,
+  CREATE_STATUSES,
+  MAX_PRICE,
   LISTING_STATUSES,
   OWNER_SETTABLE_STATUSES,
   FEED_STATUSES,

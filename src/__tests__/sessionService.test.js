@@ -26,7 +26,7 @@ describe('Sessions : jetons de rafraîchissement avec rotation', () => {
 
     const session = await startSession(user.id);
 
-    expect(verifyAccessToken(session.accessToken)).toEqual({ userId: user.id });
+    expect(verifyAccessToken(session.accessToken)).toEqual({ userId: user.id, exp: expect.any(Number) });
     expect(session.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(session.accessTokenExpiresIn).toBe(900);
     expect(JSON.stringify(mockDb._refreshTokens)).not.toContain(session.refreshToken);

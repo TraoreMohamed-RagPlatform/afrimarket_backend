@@ -1,87 +1,110 @@
 const { Server } = require('socket.io');
+const prisma = require('./lib/prisma');
+const { verifyAccessToken } = require('./utils/tokenUtils');
+const { sanitizeForLog } = require('./utils/logSafe');
+const { userRoom, setRealtimeServer } = require('./services/realtime');
 
-// Store des connexions utilisateurs: { userId: socketId }
-const userSockets = {};
+/** Statuts de compte qui n'ont plus accès au temps réel. */
+const BLOCKED_STATUSES = new Set(['SUSPENDED', 'DELETED']);
+
+/** Connexions simultanées par compte (plusieurs appareils, pas des centaines). */
+const MAX_SOCKETS_PER_USER = 5;
 
 /**
- * @param {import('http').Server} server
- * @param {{ corsOrigins?: string[] }} [options] Origines web autorisées.
+ * Les applications n'envoient rien par Socket.io (tout passe par l'API
+ * HTTP, validée et limitée) : un message entrant plus gros que ceci est
+ * refusé par la bibliothèque.
  */
-const initializeSocket = (server, { corsOrigins = [] } = {}) => {
+const MAX_INCOMING_BYTES = 1024;
+
+/** Jeton : `auth.token` de la poignée de main, jamais dans l'adresse (journaux). */
+const handshakeToken = (socket) => {
+  const token = socket.handshake.auth?.token;
+  return typeof token === 'string' && token.length > 0 && token.length < 4096 ? token : null;
+};
+
+/**
+ * Vérifie la connexion : jeton d'accès valide, compte actif, nombre de
+ * connexions raisonnable. Fermé par défaut : toute erreur refuse.
+ *
+ * @param {import('socket.io').Server} io
+ * @param {{ findUser?: (id: string) => Promise<{ status: string } | null> }} [deps]
+ */
+const createSocketAuth = (io, { findUser } = {}) => {
+  const lookup =
+    findUser ?? ((id) => prisma.user.findUnique({ where: { id }, select: { status: true } }));
+
+  return async (socket, next) => {
+    try {
+      const token = handshakeToken(socket);
+      const decoded = token ? verifyAccessToken(token) : null;
+      if (!decoded) return next(new Error('unauthorized'));
+
+      const user = await lookup(decoded.userId);
+      if (!user || BLOCKED_STATUSES.has(user.status)) return next(new Error('unauthorized'));
+
+      const open = await io.in(userRoom(decoded.userId)).fetchSockets();
+      if (open.length >= MAX_SOCKETS_PER_USER) return next(new Error('too_many_connections'));
+
+      socket.data.userId = decoded.userId;
+      socket.data.expiresAt = decoded.exp * 1000;
+      return next();
+    } catch {
+      return next(new Error('unauthorized'));
+    }
+  };
+};
+
+/**
+ * Serveur temps réel.
+ *
+ * Sécurité :
+ * - connexion refusée sans jeton d'accès valide (avant : n'importe qui,
+ *   avec n'importe quel identifiant via « user_login ») ;
+ * - chaque connexion rejoint seulement SON salon `user:<id>` ;
+ * - aucun événement envoyé par un client n'est relayé (avant : un client
+ *   pouvait diffuser de faux messages ou offres à tout le monde) ;
+ * - la présence (« en ligne ») n'est plus diffusée à tous ;
+ * - connexion fermée à l'expiration du jeton : l'application se reconnecte
+ *   avec un jeton neuf.
+ *
+ * @param {import('http').Server} server
+ * @param {{ corsOrigins?: string[], findUser?: Function }} [options]
+ */
+const initializeSocket = (server, { corsOrigins = [], findUser } = {}) => {
   const io = new Server(server, {
     cors: {
       origin: corsOrigins,
       methods: ['GET', 'POST'],
     },
+    maxHttpBufferSize: MAX_INCOMING_BYTES,
   });
 
-  // Événement: Un utilisateur se connecte
+  io.use(createSocketAuth(io, { findUser }));
+
   io.on('connection', (socket) => {
-    console.log(`🔌 User connecté: ${socket.id}`);
+    const { userId, expiresAt } = socket.data;
+    socket.join(userRoom(userId));
 
-    // Événement: User se login (envoie son userId)
-    socket.on('user_login', (userId) => {
-      userSockets[userId] = socket.id;
-      console.log(`✅ User ${userId} connecté (socket: ${socket.id})`);
+    const remaining = Math.max(0, expiresAt - Date.now());
+    const expiry = setTimeout(() => socket.disconnect(true), remaining);
+    expiry.unref?.();
 
-      // Notifier tous les autres que cet user est ONLINE
-      io.emit('user_online', { userId, timestamp: new Date() });
+    // Les clients n'ont rien à envoyer : tout événement entrant est ignoré.
+    socket.onAny((event) => {
+      console.warn('[socket] événement client ignoré : %s', sanitizeForLog(String(event)));
     });
 
-    // Événement: User reçoit un message
-    socket.on('message_received', (data) => {
-      const { conversationId, senderId, content } = data;
-      io.emit('new_message', {
-        conversationId,
-        senderId,
-        content,
-        timestamp: new Date(),
-      });
-    });
-
-    // Événement: Quelqu'un like une annonce
-    socket.on('listing_liked', (data) => {
-      const { listingId, userId } = data;
-      io.emit('listing_liked', {
-        listingId,
-        userId,
-        timestamp: new Date(),
-      });
-    });
-
-    // Événement: Nouvelle offre reçue
-    socket.on('offer_received', (data) => {
-      const { listingId, buyerId } = data;
-      io.emit('new_offer', {
-        listingId,
-        buyerId,
-        timestamp: new Date(),
-      });
-    });
-
-    // Événement: User se déconnecte
-    socket.on('disconnect', () => {
-      // Trouver quel user était connecté avec ce socket
-      const userId = Object.keys(userSockets).find(
-        (key) => userSockets[key] === socket.id
-      );
-
-      if (userId) {
-        delete userSockets[userId];
-        console.log(`❌ User ${userId} déconnecté`);
-        io.emit('user_offline', { userId, timestamp: new Date() });
-      }
-    });
-
-    // Événement: Erreur
-    socket.on('error', (error) => {
-      console.error('❌ Socket error:', error);
-    });
+    socket.on('disconnect', () => clearTimeout(expiry));
   });
 
+  setRealtimeServer(io);
   return io;
 };
 
 module.exports = {
   initializeSocket,
+  createSocketAuth,
+  MAX_SOCKETS_PER_USER,
+  MAX_INCOMING_BYTES,
 };

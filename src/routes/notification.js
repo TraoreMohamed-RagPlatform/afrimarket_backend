@@ -3,9 +3,8 @@ const { body, param, query, validationResult } = require('express-validator');
 const authMiddleware = require('../middleware/authMiddleware');
 const requireRole = require('../middleware/requireRole');
 const { apiLimiter } = require('../middleware/apiLimiter');
-const {
-  sendNotification,
-} = require('../controllers/notificationController');
+const { sendNotification } = require('../controllers/notificationController');
+const { emitToUser, EVENTS } = require('../services/realtime');
 const {
   listMyNotifications,
   getUnreadNotificationCount,
@@ -74,20 +73,16 @@ router.post(
 // GET /api/notifications/test - Test WebSocket
 // ========================================
 
+// Envoyée seulement à l'administrateur qui fait le test.
 router.get('/test', authMiddleware, requireRole('ADMIN'), (req, res) => {
-  const io = req.app.get('io');
-  
-  io.emit('test_notification', {
+  const delivered = emitToUser(req.user.userId, EVENTS.NOTIFICATION, {
     type: 'test',
     title: 'Test WebSocket',
-    message: 'Ceci est un test de WebSocket!',
-    timestamp: new Date(),
+    message: 'Ceci est un test de WebSocket.',
+    createdAt: new Date(),
   });
 
-  res.json({
-    success: true,
-    message: 'Notification test envoyée à tous les clients connectés',
-  });
+  res.json({ success: true, delivered });
 });
 
 module.exports = router;

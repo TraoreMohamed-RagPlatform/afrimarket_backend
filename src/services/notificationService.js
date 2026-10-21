@@ -1,4 +1,5 @@
 const { sanitizeForLog } = require('../utils/logSafe');
+const { emitToUser, EVENTS } = require('./realtime');
 
 /**
  * Notifications enregistrées en base (onglet Notifications et sa pastille).
@@ -27,7 +28,7 @@ const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` 
 const createNotification = async ({ prisma, userId, actorId, type, title, message, listingId }) => {
   if (!userId || userId === actorId) return false;
   try {
-    await prisma.notification.create({
+    const notification = await prisma.notification.create({
       data: {
         userId,
         type,
@@ -35,6 +36,15 @@ const createNotification = async ({ prisma, userId, actorId, type, title, messag
         message: clip(message, MESSAGE_MAX),
         ...(listingId && { listingId }),
       },
+    });
+    // Pastille et liste mises à jour tout de suite, au seul destinataire.
+    emitToUser(userId, EVENTS.NOTIFICATION, {
+      id: notification?.id,
+      type,
+      title: notification?.title,
+      message: notification?.message,
+      listingId: listingId ?? null,
+      createdAt: notification?.createdAt,
     });
     return true;
   } catch (error) {

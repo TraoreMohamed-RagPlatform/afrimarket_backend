@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendServerError } = require('../utils/httpErrors');
+const { disconnectUser } = require('../services/realtime');
 
 const prisma = new PrismaClient();
 
@@ -266,6 +267,7 @@ const deleteMyAccount = async (req, res) => {
       where: { id: userId },
       data: { status: 'DELETED' },
     });
+    disconnectUser(userId);
 
     res.json({ message: 'Compte supprimé avec succès' });
   } catch (error) {

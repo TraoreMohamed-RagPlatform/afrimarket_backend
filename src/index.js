@@ -22,7 +22,7 @@ const app = createApp({ corsOrigins: config.corsOrigins });
 const server = http.createServer(app);
 
 const io = initializeSocket(server, { corsOrigins: config.corsOrigins });
-app.set('io', io); // Accessible dans les routes via req.app.get('io')
+app.set('io', io); // Émission : services/realtime.js (jamais io.emit à tous)
 
 initializeFirebase();
 

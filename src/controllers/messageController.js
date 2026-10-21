@@ -2,6 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const { sendMessageReceivedEmail } = require('../utils/emailTemplates');
 const { sendServerError } = require('../utils/httpErrors');
 const { recordReply } = require('../services/responseTime');
+const { emitToUser, EVENTS } = require('../services/realtime');
 
 const prisma = new PrismaClient();
 
@@ -111,6 +112,16 @@ const sendMessage = async (req, res) => {
       await prisma.conversation.update({
         where: { id: conversationId },
         data: { lastMessageAt: new Date() },
+      });
+
+      // Temps réel : seulement à l'autre participant (jamais à tous).
+      const otherId = conversation.participants.find((id) => id !== userId);
+      emitToUser(otherId, EVENTS.MESSAGE, {
+        conversationId,
+        messageId: message.id,
+        senderId: userId,
+        content: message.content,
+        createdAt: message.createdAt,
       });
 
       // ✅ ENVOYER EMAIL AU DESTINATAIRE

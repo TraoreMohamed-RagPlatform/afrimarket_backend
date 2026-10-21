@@ -8,6 +8,7 @@ const {
 } = require('../utils/passwordPolicy');
 const { recordFailedLogin, resetLoginAttempts } = require('../middleware/loginLockoutMiddleware');
 const { sendResetPasswordEmail, sendPasswordChangeConfirmation } = require('../utils/passwordService');
+const { disconnectUser } = require('../services/realtime');
 const { sendServerError } = require('../utils/httpErrors');
 
 const INACTIVE_STATUSES = new Set(['SUSPENDED', 'DELETED']);
@@ -348,6 +349,8 @@ const changePassword = async (req, res) => {
       await endAllSessions(userId, tx);
     });
 
+    disconnectUser(userId);
+
     // L'appareil courant reçoit une nouvelle session.
     const session = await startSession(userId);
 
@@ -384,6 +387,9 @@ const logout = async (req, res) => {
 const logoutAll = async (req, res) => {
   try {
     await endAllSessions(req.user.userId);
+    // Connexions temps réel fermées aussi (sinon elles survivent jusqu'à
+    // l'expiration du jeton d'accès).
+    disconnectUser(req.user.userId);
     res.json({ message: 'Logged out from all devices' });
   } catch (error) {
     sendServerError(res, error, 'authController.logoutAll');

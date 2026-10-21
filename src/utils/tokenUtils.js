@@ -24,7 +24,7 @@ const generateAccessToken = (userId) =>
   });
 
 /**
- * Vérifie un jeton d'accès. Renvoie `{ userId }` ou `null`.
+ * Vérifie un jeton d'accès. Renvoie `{ userId, exp }` ou `null`.
  * Ne jamais journaliser le secret, le jeton ni son contenu.
  */
 const verifyAccessToken = (token) => {
@@ -37,7 +37,8 @@ const verifyAccessToken = (token) => {
     if (payload.typ !== ACCESS_TOKEN_TYPE || typeof payload.userId !== 'string' || !payload.userId) {
       return null;
     }
-    return { userId: payload.userId };
+    // `exp` (secondes) : la connexion temps réel est fermée à expiration.
+    return { userId: payload.userId, exp: payload.exp };
   } catch {
     return null;
   }

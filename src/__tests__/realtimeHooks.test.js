@@ -70,13 +70,24 @@ describe('Message envoyé dans une conversation', () => {
     jest.resetModules();
     const mockPrisma = {
       conversation: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'c1', participants: ['alice', 'bob'], messages: [] }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'c1',
+          buyerId: 'alice',
+          sellerId: 'bob',
+          listing: { title: 'Vélo' },
+          buyer: { id: 'alice', status: 'ACTIVE', email: 'a@test.local', username: 'alice' },
+          seller: { id: 'bob', status: 'ACTIVE', email: 'b@test.local', username: 'bob' },
+          messages: [],
+        }),
         update: jest.fn().mockResolvedValue({}),
       },
       message: {
         create: jest.fn().mockResolvedValue({
           id: 'm1',
           content: 'Toujours disponible ?',
+          senderId: 'alice',
+          conversationId: 'c1',
+          readAt: null,
           createdAt: new Date('2026-10-21T10:00:00Z'),
         }),
       },
@@ -98,7 +109,7 @@ describe('Message envoyé dans une conversation', () => {
       .set('Authorization', bearerFor('alice'))
       .send({ conversationId: 'c1', content: 'Toujours disponible ?' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(mockedRealtime.emitToUser).toHaveBeenCalledTimes(1);
     expect(mockedRealtime.emitToUser).toHaveBeenCalledWith('bob', 'message:new', {
       conversationId: 'c1',

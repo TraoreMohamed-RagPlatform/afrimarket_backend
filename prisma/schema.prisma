@@ -43,6 +43,8 @@ model User {
 
   listings        Listing[]
   messages        Message[]
+  buyerConversations  Conversation[] @relation("conversationBuyer")
+  sellerConversations Conversation[] @relation("conversationSeller")
   ratings         Rating[]
   sellerRatings   Rating[] @relation("seller")
   favorites       Favorite[]
@@ -92,7 +94,7 @@ model Listing {
 
   images        Image[]
   reports       ListingReport[]
-  messages      Message[]
+  conversations Conversation[]
   ratings       Rating[]
   favorites     Favorite[]
   notifications Notification[]
@@ -166,17 +168,13 @@ model Category {
 
 model Message {
   id              String   @id @default(cuid())
+  // Texte seul, 1 à 1000 caractères (vérifié par la route).
   content         String
   senderId        String
   sender          User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
-  // Pour les messages privés
-  conversationId  String?
-  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  // Pour les commentaires sur annonces
-  listingId       String?
-  listing         Listing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   // Lu par le destinataire (null : non lu). Rempli à l'ouverture de la conversation.
   readAt          DateTime?
@@ -185,17 +183,29 @@ model Message {
   @@index([senderId])
   @@index([conversationId])
   @@index([conversationId, readAt])
-  @@index([listingId])
+  @@index([conversationId, createdAt])
   @@index([createdAt])
 }
 
+// Discussion entre un acheteur et le vendeur, à propos d'une annonce
+// (comme Facebook Marketplace) : une seule par annonce et par acheteur.
 model Conversation {
-  id              String   @id @default(cuid())
-  participants    String[]
+  id              String    @id @default(cuid())
+  // Annonce supprimée : la discussion reste (« Annonce supprimée »).
+  // Null aussi pour les discussions créées avant le lien avec l'annonce.
+  listingId       String?
+  listing         Listing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  buyerId         String
+  buyer           User      @relation("conversationBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId        String
+  seller          User      @relation("conversationSeller", fields: [sellerId], references: [id], onDelete: Cascade)
   lastMessageAt   DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
   messages        Message[]
 
+  @@unique([listingId, buyerId])
+  @@index([buyerId, lastMessageAt])
+  @@index([sellerId, lastMessageAt])
   @@index([createdAt])
 }
 

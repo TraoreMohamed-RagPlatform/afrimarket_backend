@@ -1,220 +1,265 @@
-const { PrismaClient } = require('@prisma/client');
+// Messagerie : une discussion par annonce et par acheteur (comme Facebook
+// Marketplace), messages texte seulement.
+//
+// Sécurité :
+// - seuls l'acheteur et le vendeur voient une discussion ; pour les autres
+//   elle n'existe pas (404, pas 403 : on ne confirme pas son existence) ;
+// - l'acheteur et le vendeur sont déduits du serveur (personne connectée,
+//   auteur de l'annonce), jamais envoyés par l'app ;
+// - pas de nouvelle discussion sur sa propre annonce, une annonce vendue ou
+//   masquée, ni avec un compte suspendu ou supprimé ;
+// - textes vérifiés par la route (1 à 1000 caractères) ;
+// - temps réel : seulement à l'autre personne de la discussion.
+
+const prisma = require('../lib/prisma');
 const { sendMessageReceivedEmail } = require('../utils/emailTemplates');
 const { sendServerError } = require('../utils/httpErrors');
 const { recordReply } = require('../services/responseTime');
 const { emitToUser, EVENTS } = require('../services/realtime');
+const {
+  CONVERSATION_SUMMARY_SELECT,
+  MESSAGE_SELECT,
+  participantFilter,
+  isParticipant,
+  isOpenForMessages,
+  toConversationSummary,
+  toMessage,
+} = require('../services/conversationView');
+const {
+  CONVERSATIONS_PAGE_SIZE,
+  MESSAGES_PAGE_SIZE,
+} = require('../config/messagingOptions');
 
-const prisma = new PrismaClient();
+const notFound = (res) => res.status(404).json({ error: 'Conversation not found' });
 
-const getOrCreateConversation = async (req, res) => {
+/**
+ * Taille de page demandée (déjà bornée par la route). Express 5 : la route
+ * ne peut pas convertir `req.query`, la conversion se fait ici.
+ */
+const pageSize = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/** Messages reçus non lus dans une discussion. */
+const countUnread = (conversationId, userId) =>
+  prisma.message.count({
+    where: { conversationId, senderId: { not: userId }, readAt: null },
+  });
+
+// ========================================
+// POST /api/messages/conversations  { listingId }
+// ========================================
+
+/**
+ * Ouvre (ou retrouve) la discussion de la personne connectée avec le vendeur
+ * de l'annonce. 201 si elle vient d'être créée, 200 si elle existait.
+ */
+const startConversation = async (req, res) => {
   try {
-    const { recipientId } = req.body;
     const userId = req.user.userId;
+    const { listingId } = req.body;
 
-    // Validation
-    if (!recipientId) {
-      return res.status(400).json({ error: 'recipientId est requis' });
-    }
-
-    if (userId === recipientId) {
-      return res.status(400).json({ error: 'Impossible de créer une conversation avec soi-même' });
-    }
-
-    // Vérifier que le destinataire existe
-    const recipient = await prisma.user.findUnique({
-      where: { id: recipientId },
-    });
-
-    if (!recipient) {
-      return res.status(404).json({ error: 'Utilisateur destinataire non trouvé' });
-    }
-
-    // Chercher une conversation existante
-    let conversation = await prisma.conversation.findFirst({
-      where: {
-        AND: [
-          { participants: { has: userId } },
-          { participants: { has: recipientId } },
-        ],
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        isSold: true,
+        user: { select: { status: true } },
       },
     });
 
-    // Si aucune conversation n'existe, créer une nouvelle
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          participants: [userId, recipientId],
-        },
-      });
+    // Annonce masquée : introuvable pour les autres (comme son détail).
+    if (!listing || (listing.status === 'INACTIVE' && listing.userId !== userId)) {
+      return res.status(404).json({ error: 'Listing not found' });
+    }
+    if (listing.userId === userId) {
+      return res.status(400).json({ error: 'You cannot message your own listing', code: 'OWN_LISTING' });
     }
 
-    res.json(conversation);
+    const key = { listingId_buyerId: { listingId: listing.id, buyerId: userId } };
+    const existing = await prisma.conversation.findUnique({
+      where: key,
+      select: CONVERSATION_SUMMARY_SELECT,
+    });
+    if (existing) {
+      return res.json(toConversationSummary(existing, userId, await countUnread(existing.id, userId)));
+    }
+
+    if (!isOpenForMessages(listing)) {
+      return res.status(409).json({ error: 'Listing no longer available', code: 'LISTING_UNAVAILABLE' });
+    }
+    if (listing.user?.status !== 'ACTIVE') {
+      return res.status(409).json({ error: 'Seller unavailable', code: 'RECIPIENT_UNAVAILABLE' });
+    }
+
+    try {
+      const created = await prisma.conversation.create({
+        data: { listingId: listing.id, buyerId: userId, sellerId: listing.userId },
+        select: CONVERSATION_SUMMARY_SELECT,
+      });
+      return res.status(201).json(toConversationSummary(created, userId, 0));
+    } catch (error) {
+      // Deux demandes en même temps : l'autre l'a créée, on la renvoie.
+      if (error?.code === 'P2002') {
+        const raced = await prisma.conversation.findUnique({
+          where: key,
+          select: CONVERSATION_SUMMARY_SELECT,
+        });
+        if (raced) return res.json(toConversationSummary(raced, userId, 0));
+      }
+      throw error;
+    }
   } catch (error) {
-    sendServerError(res, error, 'messageController.getOrCreateConversation');
+    return sendServerError(res, error, 'messageController.startConversation');
+  }
+};
+
+// ========================================
+// POST /api/messages  { conversationId, content }
+// ========================================
+
+const CONTACT_SELECT = { id: true, status: true, email: true, username: true };
+
+/** E-mail « nouveau message » : jamais bloquant, le message est envoyé. */
+const emailRecipient = async ({ recipient, sender, message, listingTitle }) => {
+  try {
+    await sendMessageReceivedEmail(
+      recipient,
+      sender,
+      { content: message.content, conversationId: message.conversationId },
+      listingTitle,
+    );
+  } catch (error) {
+    console.warn('⚠️ E-mail de nouveau message non envoyé:', error.message);
   }
 };
 
 const sendMessage = async (req, res) => {
   try {
-    const { conversationId, content, listingId } = req.body;
     const userId = req.user.userId;
+    const { conversationId, content } = req.body;
 
-    // Validation
-    if (!content) {
-      return res.status(400).json({ error: 'Le contenu du message est requis' });
-    }
-
-    // Vérifier que conversationId ou listingId est fourni
-    if (!conversationId && !listingId) {
-      return res.status(400).json({ error: 'conversationId ou listingId est requis' });
-    }
-
-    let message;
-
-    if (conversationId) {
-      // Vérifier que la conversation existe et que l'utilisateur en est participant
-      const conversation = await prisma.conversation.findUnique({
-        where: { id: conversationId },
-        include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } }
-      });
-
-      if (!conversation) {
-        return res.status(404).json({ error: 'Conversation non trouvée' });
-      }
-
-      if (!conversation.participants.includes(userId)) {
-        return res.status(403).json({ error: 'Vous ne pouvez pas envoyer de message à cette conversation' });
-      }
-
-      // Créer le message
-      message = await prisma.message.create({
-        data: {
-          content,
-          senderId: userId,
-          conversationId,
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        id: true,
+        buyerId: true,
+        sellerId: true,
+        listing: { select: { title: true } },
+        buyer: { select: CONTACT_SELECT },
+        seller: { select: CONTACT_SELECT },
+        messages: {
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: { senderId: true, createdAt: true },
         },
-      });
+      },
+    });
+    if (!isParticipant(conversation, userId)) return notFound(res);
 
-      // Temps de réponse habituel (« Répond en moins d'une heure »).
-      // Jamais bloquant : le message est déjà envoyé.
-      try {
-        await recordReply({
-          prisma,
-          responderId: userId,
-          previousMessage: conversation.messages[0],
-          now: message.createdAt instanceof Date ? message.createdAt : new Date(),
-        });
-      } catch (responseTimeError) {
-        console.warn('⚠️ Temps de réponse non mis à jour:', responseTimeError.message);
-      }
-
-      // Mettre à jour lastMessageAt de la conversation
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { lastMessageAt: new Date() },
-      });
-
-      // Temps réel : seulement à l'autre participant (jamais à tous).
-      const otherId = conversation.participants.find((id) => id !== userId);
-      emitToUser(otherId, EVENTS.MESSAGE, {
-        conversationId,
-        messageId: message.id,
-        senderId: userId,
-        content: message.content,
-        createdAt: message.createdAt,
-      });
-
-      // ✅ ENVOYER EMAIL AU DESTINATAIRE
-      try {
-        // Trouver l'ID du destinataire (l'autre participant dans la conversation)
-        const recipientId = conversation.participants.find(id => id !== userId);
-        
-        // Récupérer les infos du destinataire et de l'expéditeur
-        const [recipient, sender] = await Promise.all([
-          prisma.user.findUnique({ where: { id: recipientId } }),
-          prisma.user.findUnique({ where: { id: userId } })
-        ]);
-
-        if (recipient && sender) {
-          await sendMessageReceivedEmail(
-            recipient,
-            sender,
-            { content: message.content },
-            'Conversation privée'
-          );
-        }
-      } catch (emailError) {
-        console.warn('⚠️ Email non envoyé, mais message créé:', emailError.message);
-        // On continue même si l'email échoue
-      }
-    } else if (listingId) {
-      // Vérifier que l'annonce existe
-      const listing = await prisma.listing.findUnique({
-        where: { id: listingId },
-        include: { user: true }
-      });
-
-      if (!listing) {
-        return res.status(404).json({ error: 'Annonce non trouvée' });
-      }
-
-      // Créer le message (commentaire sur l'annonce)
-      message = await prisma.message.create({
-        data: {
-          content,
-          senderId: userId,
-          listingId,
-        },
-      });
-
-      // ✅ ENVOYER EMAIL AU PROPRIÉTAIRE DE L'ANNONCE
-      try {
-        if (listing.user && listing.userId !== userId) {
-          const sender = await prisma.user.findUnique({ where: { id: userId } });
-          
-          await sendMessageReceivedEmail(
-            listing.user,
-            sender,
-            { content: message.content },
-            listing.title
-          );
-        }
-      } catch (emailError) {
-        console.warn('⚠️ Email non envoyé, mais message créé:', emailError.message);
-        // On continue même si l'email échoue
-      }
+    const isBuyer = conversation.buyerId === userId;
+    const sender = isBuyer ? conversation.buyer : conversation.seller;
+    const recipient = isBuyer ? conversation.seller : conversation.buyer;
+    if (recipient.status !== 'ACTIVE') {
+      return res.status(409).json({ error: 'Recipient unavailable', code: 'RECIPIENT_UNAVAILABLE' });
     }
 
-    res.json(message);
+    const message = await prisma.message.create({
+      data: { content, senderId: userId, conversationId: conversation.id },
+      select: { ...MESSAGE_SELECT, conversationId: true },
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: message.createdAt },
+    });
+
+    // Temps de réponse habituel (« Répond en moins d'une heure »).
+    // Jamais bloquant : le message est déjà envoyé.
+    try {
+      await recordReply({
+        prisma,
+        responderId: userId,
+        previousMessage: conversation.messages[0],
+        now: message.createdAt instanceof Date ? message.createdAt : new Date(),
+      });
+    } catch (responseTimeError) {
+      console.warn('⚠️ Temps de réponse non mis à jour:', responseTimeError.message);
+    }
+
+    // Temps réel : seulement à l'autre personne (jamais à tous).
+    emitToUser(recipient.id, EVENTS.MESSAGE, {
+      conversationId: conversation.id,
+      messageId: message.id,
+      senderId: userId,
+      content: message.content,
+      createdAt: message.createdAt,
+    });
+
+    // Pas attendu : la réponse ne dépend pas du serveur d'e-mails.
+    emailRecipient({
+      recipient,
+      sender,
+      message,
+      listingTitle: conversation.listing?.title ?? 'Conversation privée',
+    });
+
+    return res.status(201).json(toMessage(message, userId));
   } catch (error) {
-    sendServerError(res, error, 'messageController.sendMessage');
+    return sendServerError(res, error, 'messageController.sendMessage');
   }
 };
 
+// ========================================
+// GET /api/messages/conversations?role=&cursor=&limit=
+// ========================================
+
+/**
+ * Discussions de la personne connectée, dernier message en premier.
+ * `role` : `buying` (je suis l'acheteur) ou `selling` (le vendeur) ; absent,
+ * les deux. Les discussions sans aucun message ne sont pas listées.
+ */
 const getConversations = async (req, res) => {
   try {
     const userId = req.user.userId;
+    const { role, cursor } = req.query;
+    const limit = pageSize(req.query.limit, CONVERSATIONS_PAGE_SIZE);
 
-    const conversations = await prisma.conversation.findMany({
-      where: {
-        participants: { has: userId },
-      },
-      include: {
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
-      orderBy: { lastMessageAt: 'desc' },
+    const mine =
+      role === 'buying'
+        ? { buyerId: userId }
+        : role === 'selling'
+          ? { sellerId: userId }
+          : participantFilter(userId);
+    const where = { ...mine, lastMessageAt: { not: null } };
+
+    // Curseur : une discussion de cette même liste, sinon refus.
+    if (cursor) {
+      const anchor = await prisma.conversation.findFirst({
+        where: { ...where, id: cursor },
+        select: { id: true },
+      });
+      if (!anchor) return res.status(400).json({ error: 'Invalid cursor' });
+    }
+
+    const rows = await prisma.conversation.findMany({
+      where,
+      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: CONVERSATION_SUMMARY_SELECT,
     });
+    const page = rows.slice(0, limit);
 
-    // Messages non lus par conversation (pastille de la liste).
-    const unread = conversations.length === 0
+    const unread = page.length === 0
       ? []
       : await prisma.message.groupBy({
           by: ['conversationId'],
           where: {
-            conversationId: { in: conversations.map((conversation) => conversation.id) },
+            conversationId: { in: page.map((conversation) => conversation.id) },
             senderId: { not: userId },
             readAt: null,
           },
@@ -222,55 +267,100 @@ const getConversations = async (req, res) => {
         });
     const unreadById = new Map(unread.map((row) => [row.conversationId, row._count._all]));
 
-    res.json(
-      conversations.map((conversation) => ({
-        ...conversation,
-        unreadCount: unreadById.get(conversation.id) ?? 0,
-      })),
+    res.set('Cache-Control', 'no-store');
+    return res.json({
+      conversations: page.map((conversation) =>
+        toConversationSummary(conversation, userId, unreadById.get(conversation.id) ?? 0)),
+      nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+    });
+  } catch (error) {
+    return sendServerError(res, error, 'messageController.getConversations');
+  }
+};
+
+// ========================================
+// GET /api/messages/conversations/:conversationId
+// ========================================
+
+/** En-tête d'une discussion (annonce, autre personne), sans les messages. */
+const getConversation = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: req.params.conversationId },
+      select: CONVERSATION_SUMMARY_SELECT,
+    });
+    if (!isParticipant(conversation, userId)) return notFound(res);
+
+    res.set('Cache-Control', 'no-store');
+    return res.json(
+      toConversationSummary(conversation, userId, await countUnread(conversation.id, userId)),
     );
   } catch (error) {
-    sendServerError(res, error, 'messageController.getConversations');
+    return sendServerError(res, error, 'messageController.getConversation');
   }
 };
 
-const getMessages = async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const userId = req.user.userId;
-
-    // Vérifier que la conversation existe et que l'utilisateur en est participant
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-    });
-
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation non trouvée' });
-    }
-
-    if (!conversation.participants.includes(userId)) {
-      return res.status(403).json({ error: 'Vous n\'avez pas accès à cette conversation' });
-    }
-
-    // Ouvrir la conversation marque comme lus les messages reçus.
-    await prisma.message.updateMany({
-      where: { conversationId, senderId: { not: userId }, readAt: null },
-      data: { readAt: new Date() },
-    });
-
-    // Récupérer les messages
-    const messages = await prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    res.json(messages);
-  } catch (error) {
-    sendServerError(res, error, 'messageController.getMessages');
-  }
-};
+// ========================================
+// GET /api/messages/:conversationId?before=&limit=
+// ========================================
 
 /**
- * Nombre de messages reçus et non lus, toutes conversations confondues
+ * Messages d'une discussion, les plus récents d'abord. `before` : identifiant
+ * du plus ancien message déjà affiché (« charger les précédents »).
+ * La première page marque comme lus les messages reçus.
+ */
+const getMessages = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { conversationId } = req.params;
+    const { before } = req.query;
+    const limit = pageSize(req.query.limit, MESSAGES_PAGE_SIZE);
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, buyerId: true, sellerId: true },
+    });
+    if (!isParticipant(conversation, userId)) return notFound(res);
+
+    if (before) {
+      const anchor = await prisma.message.findFirst({
+        where: { id: before, conversationId: conversation.id },
+        select: { id: true },
+      });
+      if (!anchor) return res.status(400).json({ error: 'Invalid cursor' });
+    } else {
+      await prisma.message.updateMany({
+        where: { conversationId: conversation.id, senderId: { not: userId }, readAt: null },
+        data: { readAt: new Date() },
+      });
+    }
+
+    const rows = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(before ? { cursor: { id: before }, skip: 1 } : {}),
+      select: MESSAGE_SELECT,
+    });
+    const page = rows.slice(0, limit);
+
+    res.set('Cache-Control', 'no-store');
+    return res.json({
+      messages: page.map((message) => toMessage(message, userId)),
+      nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+    });
+  } catch (error) {
+    return sendServerError(res, error, 'messageController.getMessages');
+  }
+};
+
+// ========================================
+// GET /api/messages/unread-count
+// ========================================
+
+/**
+ * Nombre de messages reçus et non lus, toutes discussions confondues
  * (pastille de l'onglet Messages).
  */
 const getUnreadCount = async (req, res) => {
@@ -280,49 +370,46 @@ const getUnreadCount = async (req, res) => {
       where: {
         readAt: null,
         senderId: { not: userId },
-        conversation: { is: { participants: { has: userId } } },
+        conversation: { is: participantFilter(userId) },
       },
     });
     res.set('Cache-Control', 'no-store');
-    res.json({ count });
+    return res.json({ count });
   } catch (error) {
-    sendServerError(res, error, 'messageController.getUnreadCount');
+    return sendServerError(res, error, 'messageController.getUnreadCount');
   }
 };
 
+// ========================================
+// DELETE /api/messages/:messageId
+// ========================================
+
+/** Supprime un de ses propres messages. */
 const deleteMessage = async (req, res) => {
   try {
-    const { messageId } = req.params;
     const userId = req.user.userId;
-
-    // Vérifier que le message existe et que l'utilisateur en est le créateur
     const message = await prisma.message.findUnique({
-      where: { id: messageId },
+      where: { id: req.params.messageId },
+      select: { id: true, senderId: true },
     });
 
-    if (!message) {
-      return res.status(404).json({ error: 'Message non trouvé' });
+    // Message d'autrui : même réponse qu'un message inexistant.
+    if (!message || message.senderId !== userId) {
+      return res.status(404).json({ error: 'Message not found' });
     }
 
-    if (message.senderId !== userId) {
-      return res.status(403).json({ error: 'Vous ne pouvez pas supprimer ce message' });
-    }
-
-    // Supprimer le message
-    await prisma.message.delete({
-      where: { id: messageId },
-    });
-
-    res.json({ message: 'Message supprimé avec succès' });
+    await prisma.message.delete({ where: { id: message.id } });
+    return res.json({ message: 'Message deleted' });
   } catch (error) {
-    sendServerError(res, error, 'messageController.deleteMessage');
+    return sendServerError(res, error, 'messageController.deleteMessage');
   }
 };
 
 module.exports = {
-  getOrCreateConversation,
+  startConversation,
   sendMessage,
   getConversations,
+  getConversation,
   getMessages,
   getUnreadCount,
   deleteMessage,

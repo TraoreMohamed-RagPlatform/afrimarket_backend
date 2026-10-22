@@ -47,7 +47,7 @@ describe('Messages non lus (B4)', () => {
       where: {
         readAt: null,
         senderId: { not: 'u1' },
-        conversation: { is: { participants: { has: 'u1' } } },
+        conversation: { is: { OR: [{ buyerId: 'u1' }, { sellerId: 'u1' }] } },
       },
     });
   });
@@ -59,7 +59,7 @@ describe('Messages non lus (B4)', () => {
   });
 
   test('ouvrir une conversation marque comme lus les messages reçus (pas les miens)', async () => {
-    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'c1', participants: ['u1', 'u2'] });
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'c1', buyerId: 'u1', sellerId: 'u2' });
     mockPrisma.message.updateMany.mockResolvedValue({ count: 2 });
     mockPrisma.message.findMany.mockResolvedValue([]);
 
@@ -72,25 +72,33 @@ describe('Messages non lus (B4)', () => {
     });
   });
 
-  test('conversation d’autrui : 403, rien n’est marqué lu', async () => {
-    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'c1', participants: ['u2', 'u3'] });
+  test('conversation d’autrui : 404, rien n’est marqué lu', async () => {
+    mockPrisma.conversation.findUnique.mockResolvedValue({ id: 'c1', buyerId: 'u2', sellerId: 'u3' });
 
     const res = await request(buildApp()).get('/api/messages/c1').set(as('u1'));
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     expect(mockPrisma.message.updateMany).not.toHaveBeenCalled();
   });
 
   test('liste des conversations : non lus par conversation', async () => {
-    mockPrisma.conversation.findMany.mockResolvedValue([
-      { id: 'c1', participants: ['u1', 'u2'], messages: [] },
-      { id: 'c2', participants: ['u1', 'u3'], messages: [] },
-    ]);
+    const person = (id) => ({ id, fullName: id, username: id, avatar: null, isIdentityVerified: false, status: 'ACTIVE' });
+    const conversation = (id, sellerId) => ({
+      id,
+      buyerId: 'u1',
+      sellerId,
+      buyer: person('u1'),
+      seller: person(sellerId),
+      listing: null,
+      messages: [],
+      lastMessageAt: new Date(),
+    });
+    mockPrisma.conversation.findMany.mockResolvedValue([conversation('c1', 'u2'), conversation('c2', 'u3')]);
     mockPrisma.message.groupBy.mockResolvedValue([{ conversationId: 'c1', _count: { _all: 4 } }]);
 
     const res = await request(buildApp()).get('/api/messages/conversations').set(as('u1'));
 
-    expect(res.body.map((c) => [c.id, c.unreadCount])).toEqual([
+    expect(res.body.conversations.map((c) => [c.id, c.unreadCount])).toEqual([
       ['c1', 4],
       ['c2', 0],
     ]);

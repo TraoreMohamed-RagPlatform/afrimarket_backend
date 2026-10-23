@@ -248,6 +248,9 @@ model Notification {
   title     String
   message   String
   read      Boolean  @default(false)
+  // Vue (onglet Notifications ouvert) : la pastille ne la compte plus,
+  // même si elle n'a pas été touchée (« read »). Comme Facebook.
+  seenAt    DateTime?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   listingId String?
@@ -258,6 +261,8 @@ model Notification {
   @@index([read])
   @@index([createdAt])
   @@index([userId, read])
+  @@index([userId, seenAt])
+  @@index([userId, createdAt])
 }
 
 model Verification {

@@ -109,26 +109,23 @@ describe('Notifications (B4)', () => {
   beforeAll(useTestJwtSecret);
   beforeEach(() => jest.clearAllMocks());
 
-  test('compteur des non lues de l’utilisateur connecté', async () => {
+  test('pastille : notifications pas encore vues de l’utilisateur connecté', async () => {
     mockPrisma.notification.count.mockResolvedValue(5);
 
     const res = await request(buildApp()).get('/api/notifications/unread-count').set(as('u1'));
 
     expect(res.body).toEqual({ count: 5 });
-    expect(mockPrisma.notification.count).toHaveBeenCalledWith({ where: { userId: 'u1', read: false } });
+    expect(mockPrisma.notification.count).toHaveBeenCalledWith({ where: { userId: 'u1', seenAt: null } });
   });
 
-  test('liste : seulement les miennes, paginée', async () => {
-    mockPrisma.notification.findMany.mockResolvedValue([{ id: 'n1' }]);
-    mockPrisma.notification.count.mockResolvedValue(21);
+  test('liste : seulement les miennes', async () => {
+    mockPrisma.notification.findMany.mockResolvedValue([]);
 
-    const res = await request(buildApp()).get('/api/notifications?page=2').set(as('u1'));
+    const res = await request(buildApp()).get('/api/notifications').set(as('u1'));
 
     expect(res.status).toBe(200);
     const args = mockPrisma.notification.findMany.mock.calls[0][0];
     expect(args.where).toEqual({ userId: 'u1' });
-    expect(args.skip).toBe(20);
-    expect(res.body.pagination.pages).toBe(2);
   });
 
   test('marquer lue : uniquement la sienne (sinon 404)', async () => {

@@ -13,7 +13,8 @@ const PHOTO_ORDER = [{ position: 'asc' }, { createdAt: 'asc' }];
  * Annonce de l'utilisateur, avec ses photos dans l'ordre.
  *
  * @returns {Promise<{ listing: object } | { status: number, body: object }>}
- *   l'annonce, ou la réponse d'erreur à envoyer (404 / 403).
+ *   l'annonce, ou la réponse d'erreur à envoyer (404 / 403 ; 409 si elle
+ *   est vendue : ses photos ne changent plus).
  */
 const findOwnListing = async (req) => {
   const listing = await prisma.listing.findUnique({
@@ -21,6 +22,8 @@ const findOwnListing = async (req) => {
     select: {
       id: true,
       userId: true,
+      status: true,
+      isSold: true,
       images: { select: { id: true, publicId: true, position: true }, orderBy: PHOTO_ORDER },
     },
   });
@@ -30,6 +33,9 @@ const findOwnListing = async (req) => {
   }
   if (listing.userId !== req.user.userId) {
     return { status: 403, body: { error: 'Unauthorized' } };
+  }
+  if (listing.isSold === true || listing.status === 'SOLD') {
+    return { status: 409, body: { error: 'Annonce vendue : plus modifiable', code: 'LISTING_SOLD' } };
   }
   return { listing };
 };
@@ -140,6 +146,11 @@ const deleteListingImage = async (req, res) => {
     const image = listing.images.find((item) => item.id === req.params.imageId);
     if (!image) {
       return res.status(404).json({ error: 'Image not found' });
+    }
+
+    // Une annonce publiée garde au moins une photo (la photo du fil).
+    if (listing.status !== 'INACTIVE' && listing.images.length <= 1) {
+      return res.status(409).json({ error: 'Une annonce publiée garde au moins une photo', code: 'LAST_PHOTO' });
     }
 
     await prisma.image.delete({ where: { id: image.id } });

@@ -454,6 +454,8 @@ enum NotificationType {
   RATING_RECEIVED
   LISTING_SOLD
   LISTING_UPDATED
+  // Le prix d'une annonce enregistrée a baissé.
+  PRICE_DROP
   SYSTEM
 }
 

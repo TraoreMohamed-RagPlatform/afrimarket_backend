@@ -13,6 +13,7 @@ const {
 } = require('../config/listingOptions');
 const { publicResponseTime } = require('../services/responseTime');
 const { removePhotos } = require('../services/listingPhotos');
+const { notifyPriceDrop } = require('../services/priceDrop');
 
 const prisma = new PrismaClient();
 
@@ -394,6 +395,9 @@ const getSimilarListings = async (req, res) => {
  * - inchangé : rien ne bouge.
  * L'ancien prix est toujours calculé par le serveur, jamais envoyé par le client.
  */
+/** Vendue (drapeau ou statut). */
+const isSoldListing = (listing) => listing.isSold === true || listing.status === 'SOLD';
+
 const priceChange = (listing, newPrice) => {
   if (newPrice < listing.price) {
     return { price: newPrice, previousPrice: listing.price };
@@ -422,10 +426,7 @@ const updateListing = async (req, res) => {
     } = req.body;
 
     // Vérifier que l'utilisateur est propriétaire
-    const listing = await prisma.listing.findUnique({
-      where: { id },
-      include: { user: true }
-    });
+    const listing = await prisma.listing.findUnique({ where: { id } });
 
     if (!listing) {
       return res.status(404).json({ error: 'Listing not found' });
@@ -433,6 +434,11 @@ const updateListing = async (req, res) => {
 
     if (listing.userId !== userId) {
       return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Vendue : plus modifiable (comme Facebook Marketplace).
+    if (isSoldListing(listing)) {
+      return res.status(409).json({ error: 'Annonce vendue : plus modifiable', code: 'LISTING_SOLD' });
     }
 
     if (categoryId) {
@@ -462,40 +468,16 @@ const updateListing = async (req, res) => {
       },
     });
 
-    // ✅ ENVOYER EMAIL SI ANNONCE MISE À JOUR
-    if (title || description || price !== undefined) {
-      try {
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        const updatedFields = [];
-        if (title) updatedFields.push(`Titre: ${title}`);
-        if (description) updatedFields.push(`Description mise à jour`);
-        if (price !== undefined) updatedFields.push(`Nouveau prix: ${price} DH`);
-
-        const html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: #9C27B0; color: white; padding: 20px; text-align: center; border-radius: 5px;">
-              <h1>🔄 Annonce mise à jour</h1>
-            </div>
-            <div style="padding: 20px; background: #f9f9f9; margin: 20px 0; border-left: 4px solid #9C27B0;">
-              <p>Bonjour ${escapeHtml(user.username)},</p>
-              <p>Votre annonce <strong>${escapeHtml(listing.title)}</strong> a été mise à jour avec succès.</p>
-              <p><strong>Modifications:</strong></p>
-              <ul>
-                ${updatedFields.map((field) => `<li>${escapeHtml(field)}</li>`).join('')}
-              </ul>
-              <p>Les acheteurs verront les changements immédiatement.</p>
-            </div>
-          </div>
-        `;
-
-        await sendEmail(
-          user.email,
-          `🔄 Votre annonce "${listing.title}" a été mise à jour`,
-          html
-        );
-      } catch (emailError) {
-        console.warn('⚠️ Email de mise à jour non envoyé:', emailError.message);
-      }
+    // Baisse de prix : les personnes qui l'ont enregistrée sont prévenues
+    // (annonce visible seulement).
+    const newStatus = status ?? listing.status;
+    if (price !== undefined && price !== null && newStatus !== 'INACTIVE') {
+      await notifyPriceDrop({
+        prisma,
+        listing,
+        oldPrice: Number(listing.price),
+        newPrice: parseFloat(price),
+      });
     }
 
     res.json({

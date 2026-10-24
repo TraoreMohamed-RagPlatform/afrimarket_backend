@@ -30,9 +30,12 @@ const buildApp = () => {
 };
 
 /** Annonce du vendeur avec [count] photos existantes. */
-const listingWith = (count = 0, userId = OWNER) => ({
+const listingWith = (count = 0, userId = OWNER, extra = {}) => ({
   id: 'listing-1',
   userId,
+  status: 'ACTIVE',
+  isSold: false,
+  ...extra,
   images: Array.from({ length: count }, (_, i) => ({
     id: `img-${i}`,
     publicId: null,
@@ -230,6 +233,47 @@ describe('Photos des annonces', () => {
         .set('Authorization', bearerFor(OWNER));
 
       expect(res.status).toBe(403);
+    });
+
+    test('dernière photo d’une annonce publiée : 409, gardée', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(listingWith(1));
+
+      const res = await request(buildApp())
+        .delete('/api/listings/listing-1/images/img-0')
+        .set('Authorization', bearerFor(OWNER));
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('LAST_PHOTO');
+      expect(mockPrisma.image.delete).not.toHaveBeenCalled();
+    });
+
+    test('dernière photo d’une annonce masquée (publication en cours) : supprimée', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(listingWith(1, OWNER, { status: 'INACTIVE' }));
+
+      const res = await request(buildApp())
+        .delete('/api/listings/listing-1/images/img-0')
+        .set('Authorization', bearerFor(OWNER));
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.image.delete).toHaveBeenCalledWith({ where: { id: 'img-0' } });
+    });
+
+    test('annonce vendue : 409 (photos, ordre et suppression)', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(listingWith(3, OWNER, { isSold: true }));
+      const app = buildApp();
+
+      const removed = await request(app)
+        .delete('/api/listings/listing-1/images/img-0')
+        .set('Authorization', bearerFor(OWNER));
+      const reordered = await request(app)
+        .put('/api/listings/listing-1/images/order')
+        .set('Authorization', bearerFor(OWNER))
+        .send({ imageIds: ['img-2', 'img-1', 'img-0'] });
+
+      expect([removed.status, reordered.status]).toEqual([409, 409]);
+      expect(removed.body.code).toBe('LISTING_SOLD');
+      expect(mockPrisma.image.delete).not.toHaveBeenCalled();
+      expect(mockPrisma.image.update).not.toHaveBeenCalled();
     });
   });
 

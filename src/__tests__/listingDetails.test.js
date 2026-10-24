@@ -13,6 +13,8 @@ const mockPrisma = {
   },
   category: { findMany: jest.fn(), findUnique: jest.fn() },
   user: { findUnique: jest.fn() },
+  favorite: { findMany: jest.fn() },
+  notification: { findMany: jest.fn(), create: jest.fn() },
 };
 jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn(() => mockPrisma) }));
 // Aucun e-mail pendant les tests.
@@ -61,6 +63,11 @@ describe('Détails d’une annonce (quartier, négociable, remise, ancien prix)'
     mockPrisma.listing.update.mockImplementation(({ data }) => Promise.resolve({ id: 'listing-1', ...data }));
     mockPrisma.user.findUnique.mockResolvedValue({ id: OWNER, username: 'aminata', email: 'a@example.com' });
     mockPrisma.category.findUnique.mockResolvedValue({ id: 'c1' });
+    mockPrisma.favorite.findMany.mockResolvedValue([]);
+    mockPrisma.notification.findMany.mockResolvedValue([]);
+    mockPrisma.notification.create.mockImplementation(({ data }) =>
+      Promise.resolve({ id: `n-${data.userId}`, createdAt: new Date(), ...data }),
+    );
   });
 
   describe('POST /api/listings', () => {
@@ -239,6 +246,94 @@ describe('Détails d’une annonce (quartier, négociable, remise, ancien prix)'
       await update({ previousPrice: 5000, title: 'Canapé gris' });
 
       expect(mockPrisma.listing.update.mock.calls[0][0].data).not.toHaveProperty('previousPrice');
+    });
+
+    test('annonce vendue : 409, rien n’est modifié', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(storedListing({ isSold: true, status: 'SOLD' }));
+
+      const res = await update({ title: 'Canapé gris' });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('LISTING_SOLD');
+      expect(mockPrisma.listing.update).not.toHaveBeenCalled();
+    });
+
+    test('plus d’e-mail au vendeur à chaque modification', async () => {
+      const { sendEmail } = require('../utils/emailService');
+      mockPrisma.listing.findUnique.mockResolvedValue(storedListing());
+
+      const res = await update({ title: 'Canapé gris', price: 900 });
+
+      expect(res.status).toBe(200);
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('PUT /api/listings/:id (baisse de prix notifiée)', () => {
+    const update = (body) =>
+      request(buildApp())
+        .put('/api/listings/listing-1')
+        .set('Authorization', bearerFor(OWNER))
+        .send(body);
+
+    const notified = () => mockPrisma.notification.create.mock.calls.map(([{ data }]) => data);
+
+    test('baisse : les personnes qui l’ont enregistrée sont prévenues, pas le vendeur', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(storedListing({ price: 1000, status: 'ACTIVE' }));
+      mockPrisma.favorite.findMany.mockResolvedValue([{ userId: 'buyer-1' }, { userId: 'buyer-2' }]);
+
+      const res = await update({ price: 800 });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.favorite.findMany.mock.calls[0][0].where).toEqual({
+        listingId: 'listing-1',
+        userId: { not: OWNER },
+      });
+      expect(notified().map((data) => [data.userId, data.type, data.listingId])).toEqual([
+        ['buyer-1', 'PRICE_DROP', 'listing-1'],
+        ['buyer-2', 'PRICE_DROP', 'listing-1'],
+      ]);
+      expect(notified()[0].message).toMatch(/de 1\s000 DH à 800 DH/u);
+    });
+
+    test('déjà prévenue dans les 24 h : pas de nouvelle notification', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(storedListing({ price: 1000, status: 'ACTIVE' }));
+      mockPrisma.favorite.findMany.mockResolvedValue([{ userId: 'buyer-1' }, { userId: 'buyer-2' }]);
+      mockPrisma.notification.findMany.mockResolvedValue([{ userId: 'buyer-1' }]);
+
+      await update({ price: 700 });
+
+      const since = mockPrisma.notification.findMany.mock.calls[0][0].where.createdAt.gte;
+      expect(Date.now() - since.getTime()).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000 - 1000);
+      expect(notified().map((data) => data.userId)).toEqual(['buyer-2']);
+    });
+
+    test.each([
+      ['hausse de prix', { price: 1000, status: 'ACTIVE' }, { price: 1200 }],
+      ['prix inchangé', { price: 1000, status: 'ACTIVE' }, { price: 1000 }],
+      ['annonce masquée', { price: 1000, status: 'INACTIVE' }, { price: 800 }],
+      ['masquée en même temps', { price: 1000, status: 'ACTIVE' }, { price: 800, status: 'INACTIVE' }],
+      ['titre seulement', { price: 1000, status: 'ACTIVE' }, { title: 'Canapé gris' }],
+    ])('%s : personne n’est prévenu', async (_, stored, body) => {
+      mockPrisma.listing.findUnique.mockResolvedValue(storedListing(stored));
+      mockPrisma.favorite.findMany.mockResolvedValue([{ userId: 'buyer-1' }]);
+
+      const res = await update(body);
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+    });
+
+    test('erreur de lecture des favoris : la modification réussit quand même', async () => {
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockPrisma.listing.findUnique.mockResolvedValue(storedListing({ price: 1000, status: 'ACTIVE' }));
+      mockPrisma.favorite.findMany.mockRejectedValue(new Error('db down'));
+
+      const res = await update({ price: 500 });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+      console.warn.mockRestore();
     });
   });
 

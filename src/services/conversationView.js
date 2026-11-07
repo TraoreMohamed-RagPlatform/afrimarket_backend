@@ -70,15 +70,16 @@ const isOpenForMessages = (listing) =>
  * L'autre personne, vue par [userId]. Compte supprimé : ni nom ni photo
  * (l'app affiche « Compte supprimé »).
  */
-const toPerson = (person) => {
+const toPerson = (person, blocked = false) => {
   const isDeleted = person.status === 'DELETED';
   return {
     id: person.id,
     name: isDeleted ? null : person.fullName || person.username,
     avatar: isDeleted ? null : person.avatar ?? null,
     isIdentityVerified: !isDeleted && Boolean(person.isIdentityVerified),
-    // Faux : suspendu ou supprimé, on ne peut plus lui écrire.
-    canReceiveMessages: person.status === 'ACTIVE',
+    // Faux : suspendu, supprimé ou bloqué (dans un sens ou dans l'autre) :
+    // on ne peut plus lui écrire. Jamais la raison (pas d'indice de blocage).
+    canReceiveMessages: person.status === 'ACTIVE' && !blocked,
   };
 };
 
@@ -98,18 +99,28 @@ const preview = (content) =>
     ? `${content.slice(0, MESSAGE_PREVIEW_LENGTH).trimEnd()}…`
     : content;
 
+/** Pas de blocage (valeur par défaut de [toConversationSummary]). */
+const NO_BLOCK = Object.freeze({ blockedByMe: false, blocked: false });
+
+/** L'autre personne de la discussion, vue par [userId]. */
+const otherIdOf = (conversation, userId) =>
+  conversation.buyerId === userId ? conversation.sellerId : conversation.buyerId;
+
 /**
  * Résumé d'une discussion vu par [userId] : son rôle, l'annonce, l'autre
  * personne, le dernier message et le nombre de messages reçus non lus.
+ * [block] : blocage avec l'autre personne (`blockedByMe` est renvoyé à
+ * l'app, jamais le fait d'être soi-même bloqué).
  */
-const toConversationSummary = (conversation, userId, unreadCount = 0) => {
+const toConversationSummary = (conversation, userId, unreadCount = 0, block = NO_BLOCK) => {
   const isBuyer = conversation.buyerId === userId;
   const last = conversation.messages?.[0];
   return {
     id: conversation.id,
     role: isBuyer ? 'buying' : 'selling',
     listing: toListing(conversation.listing),
-    otherUser: toPerson(isBuyer ? conversation.seller : conversation.buyer),
+    otherUser: toPerson(isBuyer ? conversation.seller : conversation.buyer, block.blocked),
+    blockedByMe: block.blockedByMe,
     lastMessage: last
       ? {
           id: last.id,
@@ -139,6 +150,7 @@ module.exports = {
   participantFilter,
   isParticipant,
   isOpenForMessages,
+  otherIdOf,
   toConversationSummary,
   toMessage,
 };

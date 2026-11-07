@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { sendServerError } = require('../utils/httpErrors');
 const { locationOptions, DELIVERY_MODES, REPORT_REASONS, FEED_SORTS } = require('../config/listingOptions');
+const { hiddenUserIds, visibleSellerFilter } = require('../services/blocks');
 
 const prisma = new PrismaClient();
 
@@ -44,7 +45,9 @@ const advancedSearch = async (req, res) => {
         // Condition filter (if specified)
         condition ? { condition: condition } : {},
         // Category filter (if specified)
-        category ? { categoryId: category } : {}
+        category ? { categoryId: category } : {},
+        // Personne connectée : sans les annonces des personnes bloquées
+        visibleSellerFilter(await hiddenUserIds(prisma, req.user?.userId))
       ]
     };
 

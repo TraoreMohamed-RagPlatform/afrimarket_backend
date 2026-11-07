@@ -22,15 +22,28 @@ const {
   participantFilter,
   isParticipant,
   isOpenForMessages,
+  otherIdOf,
   toConversationSummary,
   toMessage,
 } = require('../services/conversationView');
+const { isBlockedBetween, blockStatesFor, blockStateOf } = require('../services/blocks');
 const {
   CONVERSATIONS_PAGE_SIZE,
   MESSAGES_PAGE_SIZE,
 } = require('../config/messagingOptions');
 
 const notFound = (res) => res.status(404).json({ error: 'Conversation not found' });
+
+/** Même réponse que pour un compte indisponible : un blocage ne se devine pas. */
+const recipientUnavailable = (res) =>
+  res.status(409).json({ error: 'Recipient unavailable', code: 'RECIPIENT_UNAVAILABLE' });
+
+/** Résumé d'une discussion avec l'état de blocage de l'autre personne. */
+const summaryWithBlock = async (conversation, userId, unreadCount) => {
+  const otherId = otherIdOf(conversation, userId);
+  const states = await blockStatesFor(prisma, userId, [otherId]);
+  return toConversationSummary(conversation, userId, unreadCount, blockStateOf(states, otherId));
+};
 
 /**
  * Taille de page demandée (déjà bornée par la route). Express 5 : la route
@@ -85,13 +98,16 @@ const startConversation = async (req, res) => {
       select: CONVERSATION_SUMMARY_SELECT,
     });
     if (existing) {
-      return res.json(toConversationSummary(existing, userId, await countUnread(existing.id, userId)));
+      return res.json(await summaryWithBlock(existing, userId, await countUnread(existing.id, userId)));
     }
 
     if (!isOpenForMessages(listing)) {
       return res.status(409).json({ error: 'Listing no longer available', code: 'LISTING_UNAVAILABLE' });
     }
     if (listing.user?.status !== 'ACTIVE') {
+      return res.status(409).json({ error: 'Seller unavailable', code: 'RECIPIENT_UNAVAILABLE' });
+    }
+    if (await isBlockedBetween(prisma, userId, listing.userId)) {
       return res.status(409).json({ error: 'Seller unavailable', code: 'RECIPIENT_UNAVAILABLE' });
     }
 
@@ -163,9 +179,8 @@ const sendMessage = async (req, res) => {
     const isBuyer = conversation.buyerId === userId;
     const sender = isBuyer ? conversation.buyer : conversation.seller;
     const recipient = isBuyer ? conversation.seller : conversation.buyer;
-    if (recipient.status !== 'ACTIVE') {
-      return res.status(409).json({ error: 'Recipient unavailable', code: 'RECIPIENT_UNAVAILABLE' });
-    }
+    if (recipient.status !== 'ACTIVE') return recipientUnavailable(res);
+    if (await isBlockedBetween(prisma, userId, recipient.id)) return recipientUnavailable(res);
 
     const message = await prisma.message.create({
       data: { content, senderId: userId, conversationId: conversation.id },
@@ -266,11 +281,21 @@ const getConversations = async (req, res) => {
           _count: { _all: true },
         });
     const unreadById = new Map(unread.map((row) => [row.conversationId, row._count._all]));
+    const blocks = await blockStatesFor(
+      prisma,
+      userId,
+      page.map((conversation) => otherIdOf(conversation, userId)),
+    );
 
     res.set('Cache-Control', 'no-store');
     return res.json({
       conversations: page.map((conversation) =>
-        toConversationSummary(conversation, userId, unreadById.get(conversation.id) ?? 0)),
+        toConversationSummary(
+          conversation,
+          userId,
+          unreadById.get(conversation.id) ?? 0,
+          blockStateOf(blocks, otherIdOf(conversation, userId)),
+        )),
       nextCursor: rows.length > limit ? page[page.length - 1].id : null,
     });
   } catch (error) {
@@ -294,7 +319,7 @@ const getConversation = async (req, res) => {
 
     res.set('Cache-Control', 'no-store');
     return res.json(
-      toConversationSummary(conversation, userId, await countUnread(conversation.id, userId)),
+      await summaryWithBlock(conversation, userId, await countUnread(conversation.id, userId)),
     );
   } catch (error) {
     return sendServerError(res, error, 'messageController.getConversation');

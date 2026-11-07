@@ -92,6 +92,7 @@ describe('Message envoyé dans une conversation', () => {
         }),
       },
       user: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() },
+      userBlock: { findFirst: jest.fn().mockResolvedValue(null) },
     };
     jest.doMock('@prisma/client', () => ({ PrismaClient: jest.fn(() => mockPrisma) }));
     jest.doMock('../lib/prisma', () => mockPrisma);

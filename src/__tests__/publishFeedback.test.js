@@ -3,6 +3,11 @@ const request = require('supertest');
 const { useTestJwtSecret, bearerFor } = require('./helpers/auth');
 
 const mockPrisma = {
+  userBlock: {
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
   listing: { findUnique: jest.fn() },
 };
 jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn(() => mockPrisma) }));

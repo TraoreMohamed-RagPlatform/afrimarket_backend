@@ -14,6 +14,7 @@ const {
 const { publicResponseTime } = require('../services/responseTime');
 const { removePhotos } = require('../services/listingPhotos');
 const { notifyPriceDrop } = require('../services/priceDrop');
+const { hiddenUserIds, visibleSellerFilter, isBlockedBetween } = require('../services/blocks');
 
 const prisma = new PrismaClient();
 
@@ -100,7 +101,10 @@ const getListings = async (req, res) => {
     const requested = Number.parseInt(req.query.limit, 10);
     const limit = requested > 0 ? Math.min(requested, FEED_MAX_LIMIT) : FEED_DEFAULT_LIMIT;
 
-    const where = { status: { in: [...FEED_STATUSES] } };
+    // Personne connectée : sans les annonces des personnes bloquées (dans un
+    // sens ou dans l'autre), comme Facebook Marketplace.
+    const hidden = await hiddenUserIds(prisma, req.user?.userId);
+    const where = { status: { in: [...FEED_STATUSES] }, ...visibleSellerFilter(hidden) };
 
     if (categoryId) where.categoryId = categoryId;
     if (city) where.city = city;
@@ -237,7 +241,12 @@ const getListing = async (req, res) => {
     const isOwner = req.user?.userId === listing?.userId;
 
     // Annonce masquée (INACTIVE) : visible seulement par son vendeur.
-    if (!listing || (listing.status === 'INACTIVE' && !isOwner)) {
+    // Vendeur bloqué (dans un sens ou dans l'autre) : introuvable aussi.
+    if (
+      !listing ||
+      (listing.status === 'INACTIVE' && !isOwner) ||
+      (!isOwner && await isBlockedBetween(prisma, req.user?.userId, listing.userId))
+    ) {
       return res.status(404).json({ error: 'Listing not found' });
     }
 
@@ -357,10 +366,12 @@ const getSimilarListings = async (req, res) => {
       return res.status(404).json({ error: 'Listing not found' });
     }
 
+    const hidden = await hiddenUserIds(prisma, req.user?.userId);
     const base = {
       status: 'ACTIVE',
       isSold: false,
       categoryId: listing.categoryId,
+      ...visibleSellerFilter(hidden),
     };
     const query = (where, take) =>
       prisma.listing.findMany({

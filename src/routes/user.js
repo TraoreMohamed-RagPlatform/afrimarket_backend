@@ -9,8 +9,19 @@ const {
   updateMySettings,
   deleteMyAccount,
 } = require('../controllers/userController');
+const {
+  listMyBlocks,
+  blockUser,
+  unblockUser,
+  reportUser,
+} = require('../controllers/safetyController');
+const { SAFE_ID_PATTERN } = require('../config/messagingOptions');
+const {
+  USER_REPORT_REASONS,
+  REPORT_DETAILS_MAX_LENGTH,
+} = require('../config/safetyOptions');
 const authMiddleware = require('../middleware/authMiddleware');
-const { body, validationResult } = require('express-validator');
+const { body, param, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { apiLimiter } = require('../middleware/apiLimiter');
 
@@ -33,7 +44,50 @@ const generalLimiter = rateLimit({
   message: 'Trop de requêtes, veuillez réessayer plus tard.',
 });
 
+// Par UTILISATEUR (après l'authentification).
+const perUserLimiter = (windowMs, limit) =>
+  rateLimit({
+    windowMs,
+    limit,
+    keyGenerator: (req) => `user:${req.user.userId}`,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' },
+  });
+
+const HOUR_MS = 60 * 60 * 1000;
+// Blocages : largement assez pour un usage honnête.
+const blockLimiter = perUserLimiter(HOUR_MS, 60);
+// Signalements : pas de quoi inonder la modération.
+const userReportLimiter = perUserLimiter(HOUR_MS, 10);
+
 // ===== Validation Middleware =====
+const validateBlock = [
+  body('userId')
+    .isString().withMessage('Identifiant invalide')
+    .matches(SAFE_ID_PATTERN).withMessage('Identifiant invalide'),
+];
+
+const validateUnblock = [
+  param('userId').isString().matches(SAFE_ID_PATTERN).withMessage('Identifiant invalide'),
+];
+
+const validateUserReport = [
+  param('id').isString().matches(SAFE_ID_PATTERN).withMessage('Identifiant invalide'),
+  body('reason')
+    .isIn(USER_REPORT_REASONS).withMessage('Motif de signalement inconnu'),
+  body('details')
+    .optional({ values: 'null' })
+    .isString().withMessage('Le détail doit être un texte')
+    .trim()
+    .isLength({ max: REPORT_DETAILS_MAX_LENGTH })
+    .withMessage(`Le détail ne doit pas dépasser ${REPORT_DETAILS_MAX_LENGTH} caractères`),
+  body('conversationId')
+    .optional({ values: 'null' })
+    .isString().withMessage('Discussion invalide')
+    .matches(SAFE_ID_PATTERN).withMessage('Discussion invalide'),
+];
+
 const validateUpdateProfile = [
   body('fullName')
     .optional()
@@ -137,6 +191,39 @@ router.put(
   validateUpdateSettings,
   handleValidationErrors,
   updateMySettings
+);
+
+// 🚫 GET /api/users/me/blocks - Personnes que j'ai bloquées (protégé)
+router.get('/me/blocks', authMiddleware, generalLimiter, listMyBlocks);
+
+// 🚫 POST /api/users/me/blocks - Bloquer une personne (protégé)
+router.post(
+  '/me/blocks',
+  authMiddleware,
+  blockLimiter,
+  validateBlock,
+  handleValidationErrors,
+  blockUser
+);
+
+// ✅ DELETE /api/users/me/blocks/:userId - Débloquer (protégé)
+router.delete(
+  '/me/blocks/:userId',
+  authMiddleware,
+  blockLimiter,
+  validateUnblock,
+  handleValidationErrors,
+  unblockUser
+);
+
+// 🚩 POST /api/users/:id/report - Signaler une personne (protégé)
+router.post(
+  '/:id/report',
+  authMiddleware,
+  userReportLimiter,
+  validateUserReport,
+  handleValidationErrors,
+  reportUser
 );
 
 // 🗑️ DELETE /api/users/me/account - Supprimer mon compte (protégé)

@@ -296,6 +296,17 @@ describe('Détails d’une annonce (quartier, négociable, remise, ancien prix)'
       expect(notified()[0].message).toMatch(/de 1\s000 DH à 800 DH/u);
     });
 
+    test('titre changé en même temps : le message reprend le nouveau titre', async () => {
+      mockPrisma.listing.findUnique.mockResolvedValue(
+        storedListing({ title: 'Canapé', price: 1000, status: 'ACTIVE' }),
+      );
+      mockPrisma.favorite.findMany.mockResolvedValue([{ userId: 'buyer-1' }]);
+
+      await update({ title: 'Canapé gris', price: 800 });
+
+      expect(notified()[0].message).toContain('« Canapé gris »');
+    });
+
     test('déjà prévenue dans les 24 h : pas de nouvelle notification', async () => {
       mockPrisma.listing.findUnique.mockResolvedValue(storedListing({ price: 1000, status: 'ACTIVE' }));
       mockPrisma.favorite.findMany.mockResolvedValue([{ userId: 'buyer-1' }, { userId: 'buyer-2' }]);

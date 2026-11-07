@@ -474,7 +474,8 @@ const updateListing = async (req, res) => {
     if (price !== undefined && price !== null && newStatus !== 'INACTIVE') {
       await notifyPriceDrop({
         prisma,
-        listing,
+        // Titre modifié en même temps : le nouveau titre.
+        listing: title ? { ...listing, title } : listing,
         oldPrice: Number(listing.price),
         newPrice: parseFloat(price),
       });

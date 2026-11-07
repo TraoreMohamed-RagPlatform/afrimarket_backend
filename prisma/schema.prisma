@@ -41,6 +41,12 @@ model User {
   settings        UserSettings?
   listingReports  ListingReport[]
 
+  // Blocages (comme Messenger) et signalements de personnes.
+  blocksMade          UserBlock[]  @relation("blocker")
+  blocksReceived      UserBlock[]  @relation("blocked")
+  userReportsMade     UserReport[] @relation("userReporter")
+  userReportsReceived UserReport[] @relation("userReported")
+
   listings        Listing[]
   messages        Message[]
   buyerConversations  Conversation[] @relation("conversationBuyer")
@@ -151,6 +157,45 @@ model ListingReport {
   @@index([createdAt])
 }
 
+// [blocker] a bloqué [blocked] : plus de messages dans un sens comme dans
+// l'autre, et leurs annonces ne se voient plus (comme Facebook Marketplace).
+model UserBlock {
+  id         String   @id @default(cuid())
+  blockerId  String
+  blocker    User     @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId  String
+  blocked    User     @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+// Signalement d'une personne depuis une discussion. Jamais visible par la
+// personne signalée ; examiné par la modération.
+model UserReport {
+  id              String        @id @default(cuid())
+  reporterId      String
+  reporter        User          @relation("userReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedId      String
+  reported        User          @relation("userReported", fields: [reportedId], references: [id], onDelete: Cascade)
+  // Discussion d'où vient le signalement (supprimée : le signalement reste).
+  conversationId  String?
+  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  reason          String        // voir USER_REPORT_REASONS
+  details         String?
+  // Derniers messages de la discussion, copiés au moment du signalement
+  // (la personne qui signale en est prévenue avant l'envoi).
+  messages        Json
+  status          String        @default("OPEN") // OPEN, REVIEWED, DISMISSED
+  createdAt       DateTime      @default(now())
+
+  @@unique([conversationId, reporterId])
+  @@index([reportedId])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model Category {
   id          String   @id @default(cuid())
   name        String   @unique
@@ -202,6 +247,7 @@ model Conversation {
   lastMessageAt   DateTime?
   createdAt       DateTime  @default(now())
   messages        Message[]
+  reports         UserReport[]
 
   @@unique([listingId, buyerId])
   @@index([buyerId, lastMessageAt])

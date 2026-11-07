@@ -258,6 +258,7 @@ router.post(
 router.get(
   '/',
   listingGeneralLimiter, // Rate limiting (pas besoin d'auth)
+  optionalAuth, // Connexion facultative : annonces des personnes bloquées masquées
   validateFeedQuery,
   handleValidationErrors,
   getListings
@@ -283,6 +284,7 @@ router.get(
 router.get(
   '/:id/similar',
   listingGeneralLimiter,
+  optionalAuth, // Connexion facultative : annonces des personnes bloquées masquées
   getSimilarListings
 );
 

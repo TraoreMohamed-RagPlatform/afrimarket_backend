@@ -2,6 +2,7 @@ const express = require('express');
 const { advancedSearch, getFilterOptions } = require('../controllers/searchController');
 const rateLimit = require('express-rate-limit');
 const { apiLimiter } = require('../middleware/apiLimiter');
+const optionalAuth = require('../middleware/optionalAuth');
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ const filterLimiter = rateLimit({
 // ========================================
 // GET /search - Advanced Search
 // ========================================
-router.get('/search', apiLimiter, searchLimiter, advancedSearch);
+router.get('/search', apiLimiter, searchLimiter, optionalAuth, advancedSearch);
 
 // ========================================
 // GET /filters - Get Filter Options

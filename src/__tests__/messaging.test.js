@@ -5,6 +5,11 @@ const { useTestJwtSecret, bearerFor } = require('./helpers/auth');
 // Messagerie : une discussion par annonce et par acheteur, texte seul.
 
 const mockPrisma = {
+  userBlock: {
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
   listing: { findUnique: jest.fn() },
   conversation: {
     findUnique: jest.fn(),

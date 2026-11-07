@@ -5,6 +5,11 @@ const { useTestJwtSecret, bearerFor } = require('./helpers/auth');
 // Contrôleurs anciens (leur propre PrismaClient) et nouveaux (lib/prisma) :
 // le même faux pour les deux.
 const mockPrisma = {
+  userBlock: {
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
   message: { count: jest.fn(), updateMany: jest.fn(), findMany: jest.fn(), groupBy: jest.fn() },
   conversation: { findUnique: jest.fn(), findMany: jest.fn() },
   notification: { count: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), create: jest.fn() },

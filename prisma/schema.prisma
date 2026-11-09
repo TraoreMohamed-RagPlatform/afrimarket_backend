@@ -213,8 +213,15 @@ model Category {
 
 model Message {
   id              String   @id @default(cuid())
-  // Texte seul, 1 à 1000 caractères (vérifié par la route).
+  // Texte de 1 à 1000 caractères (vérifié par la route), ou vide pour une
+  // photo.
   content         String
+  // Photo (une par message, comme Messenger) : nom du fichier réencodé par
+  // le serveur dans uploads/messages, JAMAIS servi publiquement (seulement
+  // aux deux personnes de la discussion), et ses dimensions.
+  photoName       String?
+  photoWidth      Int?
+  photoHeight     Int?
   senderId        String
   sender          User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 

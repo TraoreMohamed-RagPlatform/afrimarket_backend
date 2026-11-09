@@ -17,7 +17,7 @@ let io = null;
 const EVENTS = Object.freeze({
   /** Nouvelle notification enregistrée : `{ id, type, title, message, listingId, createdAt }`. */
   NOTIFICATION: 'notification:new',
-  /** Nouveau message reçu : `{ conversationId, messageId, senderId, content, createdAt }`. */
+  /** Nouveau message reçu : `{ conversationId, messageId, senderId, content, hasPhoto, createdAt }`. */
   MESSAGE: 'message:new',
 });
 

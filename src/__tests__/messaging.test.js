@@ -323,6 +323,7 @@ describe('POST /api/messages : envoyer un message', () => {
       id: 'm1',
       content: 'Toujours disponible ?',
       senderId: 'buyer',
+      photo: null,
       isMine: true,
       createdAt: '2026-10-21T10:00:00.000Z',
       readAt: null,

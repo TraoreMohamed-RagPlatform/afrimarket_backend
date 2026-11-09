@@ -93,3 +93,10 @@ exports.uploadListingPhotos = multer({
   fileFilter,
   limits: { fileSize: MAX_FILE_SIZE, files: LISTING_PHOTOS_PER_REQUEST },
 }).array('images', LISTING_PHOTOS_PER_REQUEST);
+
+// Photo d'un message (champ « photo », une seule par message).
+exports.uploadMessagePhoto = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: MAX_FILE_SIZE, files: 1, fields: 2 },
+}).single('photo');

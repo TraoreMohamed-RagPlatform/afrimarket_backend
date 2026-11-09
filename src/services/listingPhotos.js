@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const sharp = require('sharp');
+const { encodeJpeg } = require('./photoEncoding');
 
 /**
  * Photos des annonces : seul dossier de « uploads » servi publiquement.
@@ -16,12 +16,6 @@ const LISTING_PHOTOS_URL_PREFIX = '/uploads/listings';
 
 // Les photos sont toujours réencodées en « <uuid v4>.jpg » par le serveur.
 const STORED_PHOTO_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/;
-
-/** Côté le plus long d'une photo enregistrée (suffisant pour un écran plein). */
-const MAX_PHOTO_SIDE = 1600;
-const JPEG_QUALITY = 80;
-// Refuse les images démesurées (bombe de décompression).
-const MAX_INPUT_PIXELS = 40_000_000;
 
 fs.mkdirSync(LISTING_PHOTOS_DIR, { recursive: true });
 
@@ -41,12 +35,8 @@ const storedPhotoPath = (name) => {
 };
 
 /**
- * Réencode une photo envoyée (fichier temporaire) en JPEG.
- *
- * - le contenu réel est décodé par sharp : un faux « .jpg » est refusé ;
- * - l'orientation EXIF est appliquée, puis TOUTES les métadonnées sont
- *   retirées (dont la position GPS, qui révélerait le domicile du vendeur) ;
- * - la taille est ramenée à 1600 px maximum.
+ * Réencode une photo envoyée (fichier temporaire) en JPEG, sans
+ * métadonnées (voir services/photoEncoding.js).
  *
  * @param {string} tempPath Fichier temporaire (déjà validé par multer).
  * @returns {Promise<{ name: string, url: string }>}
@@ -56,16 +46,7 @@ const savePhoto = async (tempPath) => {
   const name = `${randomUUID()}.jpg`;
   const destination = storedPhotoPath(name);
 
-  await sharp(tempPath, { limitInputPixels: MAX_INPUT_PIXELS, failOn: 'error' })
-    .rotate()
-    .resize({
-      width: MAX_PHOTO_SIDE,
-      height: MAX_PHOTO_SIDE,
-      fit: 'inside',
-      withoutEnlargement: true,
-    })
-    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
-    .toFile(destination);
+  await encodeJpeg(tempPath, destination);
 
   return { name, url: `${LISTING_PHOTOS_URL_PREFIX}/${name}` };
 };

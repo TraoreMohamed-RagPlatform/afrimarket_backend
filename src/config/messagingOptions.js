@@ -1,4 +1,4 @@
-// Règles de la messagerie (discussion par annonce, texte seul).
+// Règles de la messagerie (discussion par annonce, texte ou photo).
 // Les mêmes limites sont appliquées par l'app mobile.
 
 /** Longueur d'un message, espaces autour retirés. */
@@ -13,6 +13,12 @@ const CONVERSATIONS_PAGE_SIZE = 20;
 const CONVERSATIONS_MAX_PAGE_SIZE = 50;
 const MESSAGES_PAGE_SIZE = 30;
 const MESSAGES_MAX_PAGE_SIZE = 100;
+
+/** Photos : une par message, envoyées une à une (comme Messenger). */
+const MESSAGE_PHOTOS_PER_10_MIN = 20;
+
+/** Texte du dernier message et de l'e-mail quand c'est une photo. */
+const PHOTO_PREVIEW_TEXT = '📷 Photo';
 
 /** Onglets de la liste : discussions où je suis l'acheteur ou le vendeur. */
 const CONVERSATION_ROLES = ['buying', 'selling'];
@@ -31,6 +37,8 @@ module.exports = {
   CONVERSATIONS_MAX_PAGE_SIZE,
   MESSAGES_PAGE_SIZE,
   MESSAGES_MAX_PAGE_SIZE,
+  MESSAGE_PHOTOS_PER_10_MIN,
+  PHOTO_PREVIEW_TEXT,
   CONVERSATION_ROLES,
   OPEN_FOR_MESSAGES_STATUSES,
   SAFE_ID_PATTERN,

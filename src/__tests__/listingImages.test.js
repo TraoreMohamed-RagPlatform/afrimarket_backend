@@ -338,6 +338,7 @@ describe('Photos des annonces', () => {
     test.each([
       ['/uploads/identity/user/documents/x.png'],
       ['/uploads/temp/x.jpg'],
+      ['/uploads/messages/11111111-2222-4333-8444-555555555555.jpg'],
       ['/uploads/listings/..%2Fidentity%2Fx.png'],
       ['/uploads/listings/../identity/x.png'],
       ['/uploads/listings/'],

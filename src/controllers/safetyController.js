@@ -110,7 +110,7 @@ const reportUser = async (req, res) => {
           messages: {
             orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
             take: REPORT_MESSAGES_COPIED,
-            select: { senderId: true, content: true, createdAt: true },
+            select: { senderId: true, content: true, photoName: true, createdAt: true },
           },
         },
       });
@@ -122,6 +122,8 @@ const reportUser = async (req, res) => {
       messages = conversation.messages.reverse().map((message) => ({
         fromReported: message.senderId === reportedId,
         content: message.content,
+        // Photo : signalée comme telle (le fichier reste privé).
+        hasPhoto: Boolean(message.photoName),
         createdAt: message.createdAt,
       }));
     }

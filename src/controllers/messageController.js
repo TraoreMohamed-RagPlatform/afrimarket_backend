@@ -1,5 +1,5 @@
 // Messagerie : une discussion par annonce et par acheteur (comme Facebook
-// Marketplace), messages texte seulement.
+// Marketplace), messages texte ou photo (une photo par message).
 //
 // Sécurité :
 // - seuls l'acheteur et le vendeur voient une discussion ; pour les autres
@@ -9,9 +9,17 @@
 // - pas de nouvelle discussion sur sa propre annonce, une annonce vendue ou
 //   masquée, ni avec un compte suspendu ou supprimé ;
 // - textes vérifiés par la route (1 à 1000 caractères) ;
+// - photos réencodées sans métadonnées (GPS) et PRIVÉES : envoyées
+//   seulement aux deux personnes de la discussion ;
 // - temps réel : seulement à l'autre personne de la discussion.
 
 const prisma = require('../lib/prisma');
+const { tempUploadPath, removeTempUploads } = require('../middleware/uploadMiddleware');
+const {
+  messagePhotoPath,
+  saveMessagePhoto,
+  removeMessagePhotos,
+} = require('../services/messagePhotos');
 const { sendMessageReceivedEmail } = require('../utils/emailTemplates');
 const { sendServerError } = require('../utils/httpErrors');
 const { recordReply } = require('../services/responseTime');
@@ -30,13 +38,11 @@ const { isBlockedBetween, blockStatesFor, blockStateOf } = require('../services/
 const {
   CONVERSATIONS_PAGE_SIZE,
   MESSAGES_PAGE_SIZE,
+  PHOTO_PREVIEW_TEXT,
+  SAFE_ID_PATTERN,
 } = require('../config/messagingOptions');
 
 const notFound = (res) => res.status(404).json({ error: 'Conversation not found' });
-
-/** Même réponse que pour un compte indisponible : un blocage ne se devine pas. */
-const recipientUnavailable = (res) =>
-  res.status(409).json({ error: 'Recipient unavailable', code: 'RECIPIENT_UNAVAILABLE' });
 
 /** Résumé d'une discussion avec l'état de blocage de l'autre personne. */
 const summaryWithBlock = async (conversation, userId, unreadCount) => {
@@ -153,78 +159,208 @@ const emailRecipient = async ({ recipient, sender, message, listingTitle }) => {
   }
 };
 
+/** Champs de la discussion lus avant un envoi. */
+const SEND_CONVERSATION_SELECT = {
+  id: true,
+  buyerId: true,
+  sellerId: true,
+  listing: { select: { title: true } },
+  buyer: { select: CONTACT_SELECT },
+  seller: { select: CONTACT_SELECT },
+  messages: {
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: 1,
+    select: { senderId: true, createdAt: true },
+  },
+};
+
+/**
+ * Discussion où [userId] peut écrire maintenant.
+ *
+ * @returns {Promise<{ conversation, sender, recipient } | { status: number, body: object }>}
+ *   ou la réponse d'erreur : 404 (pas sa discussion), 409 (destinataire
+ *   indisponible ou blocage : même réponse, un blocage ne se devine pas).
+ */
+const writableConversation = async (conversationId, userId) => {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: SEND_CONVERSATION_SELECT,
+  });
+  if (!isParticipant(conversation, userId)) {
+    return { status: 404, body: { error: 'Conversation not found' } };
+  }
+
+  const isBuyer = conversation.buyerId === userId;
+  const sender = isBuyer ? conversation.buyer : conversation.seller;
+  const recipient = isBuyer ? conversation.seller : conversation.buyer;
+  if (recipient.status !== 'ACTIVE' || (await isBlockedBetween(prisma, userId, recipient.id))) {
+    return { status: 409, body: { error: 'Recipient unavailable', code: 'RECIPIENT_UNAVAILABLE' } };
+  }
+  return { conversation, sender, recipient };
+};
+
+/**
+ * Enregistre le message, puis prévient l'autre personne (temps réel,
+ * e-mail). Renvoie le message enregistré.
+ */
+const deliver = async ({ target, userId, data }) => {
+  const { conversation, sender, recipient } = target;
+  const message = await prisma.message.create({
+    data: { ...data, senderId: userId, conversationId: conversation.id },
+    select: { ...MESSAGE_SELECT, conversationId: true },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: message.createdAt },
+  });
+
+  // Temps de réponse habituel (« Répond en moins d'une heure »).
+  // Jamais bloquant : le message est déjà envoyé.
+  try {
+    await recordReply({
+      prisma,
+      responderId: userId,
+      previousMessage: conversation.messages[0],
+      now: message.createdAt instanceof Date ? message.createdAt : new Date(),
+    });
+  } catch (responseTimeError) {
+    console.warn('⚠️ Temps de réponse non mis à jour:', responseTimeError.message);
+  }
+
+  const hasPhoto = Boolean(message.photoName);
+
+  // Temps réel : seulement à l'autre personne (jamais à tous).
+  emitToUser(recipient.id, EVENTS.MESSAGE, {
+    conversationId: conversation.id,
+    messageId: message.id,
+    senderId: userId,
+    content: hasPhoto ? '' : message.content,
+    hasPhoto,
+    createdAt: message.createdAt,
+  });
+
+  // Pas attendu : la réponse ne dépend pas du serveur d'e-mails.
+  emailRecipient({
+    recipient,
+    sender,
+    message: hasPhoto ? { ...message, content: PHOTO_PREVIEW_TEXT } : message,
+    listingTitle: conversation.listing?.title ?? 'Conversation privée',
+  });
+
+  return message;
+};
+
 const sendMessage = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { conversationId, content } = req.body;
 
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
-      select: {
-        id: true,
-        buyerId: true,
-        sellerId: true,
-        listing: { select: { title: true } },
-        buyer: { select: CONTACT_SELECT },
-        seller: { select: CONTACT_SELECT },
-        messages: {
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-          select: { senderId: true, createdAt: true },
-        },
-      },
-    });
-    if (!isParticipant(conversation, userId)) return notFound(res);
+    const target = await writableConversation(conversationId, userId);
+    if (!target.conversation) return res.status(target.status).json(target.body);
 
-    const isBuyer = conversation.buyerId === userId;
-    const sender = isBuyer ? conversation.buyer : conversation.seller;
-    const recipient = isBuyer ? conversation.seller : conversation.buyer;
-    if (recipient.status !== 'ACTIVE') return recipientUnavailable(res);
-    if (await isBlockedBetween(prisma, userId, recipient.id)) return recipientUnavailable(res);
-
-    const message = await prisma.message.create({
-      data: { content, senderId: userId, conversationId: conversation.id },
-      select: { ...MESSAGE_SELECT, conversationId: true },
-    });
-
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { lastMessageAt: message.createdAt },
-    });
-
-    // Temps de réponse habituel (« Répond en moins d'une heure »).
-    // Jamais bloquant : le message est déjà envoyé.
-    try {
-      await recordReply({
-        prisma,
-        responderId: userId,
-        previousMessage: conversation.messages[0],
-        now: message.createdAt instanceof Date ? message.createdAt : new Date(),
-      });
-    } catch (responseTimeError) {
-      console.warn('⚠️ Temps de réponse non mis à jour:', responseTimeError.message);
-    }
-
-    // Temps réel : seulement à l'autre personne (jamais à tous).
-    emitToUser(recipient.id, EVENTS.MESSAGE, {
-      conversationId: conversation.id,
-      messageId: message.id,
-      senderId: userId,
-      content: message.content,
-      createdAt: message.createdAt,
-    });
-
-    // Pas attendu : la réponse ne dépend pas du serveur d'e-mails.
-    emailRecipient({
-      recipient,
-      sender,
-      message,
-      listingTitle: conversation.listing?.title ?? 'Conversation privée',
-    });
-
+    const message = await deliver({ target, userId, data: { content } });
     return res.status(201).json(toMessage(message, userId));
   } catch (error) {
     return sendServerError(res, error, 'messageController.sendMessage');
+  }
+};
+
+// ========================================
+// POST /api/messages/photos  (multipart : conversationId, photo)
+// ========================================
+
+/**
+ * Envoie une photo (un message). La discussion est vérifiée AVANT de
+ * garder le fichier ; la photo est réencodée sans métadonnées. Le fichier
+ * temporaire est supprimé avant la réponse, dans tous les cas.
+ */
+const sendPhoto = async (req, res) => {
+  let saved = null;
+  try {
+    const userId = req.user.userId;
+    const conversationId = req.body?.conversationId;
+    if (typeof conversationId !== 'string' || !SAFE_ID_PATTERN.test(conversationId)) {
+      return res.status(400).json({ error: 'Validation échouée' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image provided' });
+    }
+
+    const target = await writableConversation(conversationId, userId);
+    if (!target.conversation) return res.status(target.status).json(target.body);
+
+    try {
+      saved = await saveMessagePhoto(tempUploadPath(req.file));
+    } catch {
+      return res.status(400).json({ error: 'Invalid image' });
+    }
+
+    const message = await deliver({
+      target,
+      userId,
+      data: {
+        content: '',
+        photoName: saved.name,
+        photoWidth: saved.width,
+        photoHeight: saved.height,
+      },
+    });
+    saved = null; // Enregistrée : le fichier est gardé.
+    return res.status(201).json(toMessage(message, userId));
+  } catch (error) {
+    return sendServerError(res, error, 'messageController.sendPhoto');
+  } finally {
+    if (saved) await removeMessagePhotos([saved.name]);
+    await removeTempUploads(req.file);
+  }
+};
+
+// ========================================
+// GET /api/messages/photos/:messageId
+// ========================================
+
+/**
+ * Photo d'un message, seulement pour les deux personnes de la discussion
+ * (même blocage : l'historique reste visible, comme Messenger). Pour les
+ * autres, elle n'existe pas (404).
+ */
+const getPhoto = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const message = await prisma.message.findUnique({
+      where: { id: req.params.messageId },
+      select: {
+        photoName: true,
+        conversation: { select: { buyerId: true, sellerId: true } },
+      },
+    });
+    const file = message ? messagePhotoPath(message.photoName) : null;
+    if (!file || !isParticipant(message.conversation, userId)) {
+      return res.status(404).json({ error: 'Photo not found' });
+    }
+
+    return res.sendFile(
+      file,
+      {
+        dotfiles: 'deny',
+        headers: {
+          'Content-Type': 'image/jpeg',
+          // Privée : jamais dans un cache partagé (proxy) ; la photo d'un
+          // message ne change jamais.
+          'Cache-Control': 'private, max-age=86400, immutable',
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': 'inline',
+        },
+      },
+      (error) => {
+        if (error && !res.headersSent) {
+          res.status(404).json({ error: 'Photo not found' });
+        }
+      },
+    );
+  } catch (error) {
+    return sendServerError(res, error, 'messageController.getPhoto');
   }
 };
 
@@ -415,7 +551,7 @@ const deleteMessage = async (req, res) => {
     const userId = req.user.userId;
     const message = await prisma.message.findUnique({
       where: { id: req.params.messageId },
-      select: { id: true, senderId: true },
+      select: { id: true, senderId: true, photoName: true },
     });
 
     // Message d'autrui : même réponse qu'un message inexistant.
@@ -424,6 +560,7 @@ const deleteMessage = async (req, res) => {
     }
 
     await prisma.message.delete({ where: { id: message.id } });
+    await removeMessagePhotos([message.photoName]);
     return res.json({ message: 'Message deleted' });
   } catch (error) {
     return sendServerError(res, error, 'messageController.deleteMessage');
@@ -433,6 +570,8 @@ const deleteMessage = async (req, res) => {
 module.exports = {
   startConversation,
   sendMessage,
+  sendPhoto,
+  getPhoto,
   getConversations,
   getConversation,
   getMessages,

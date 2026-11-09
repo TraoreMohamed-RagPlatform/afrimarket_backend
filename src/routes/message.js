@@ -3,6 +3,7 @@ const { body, param, query, validationResult } = require('express-validator');
 const { rateLimit } = require('express-rate-limit');
 const authMiddleware = require('../middleware/authMiddleware');
 const messageController = require('../controllers/messageController');
+const { uploadMessagePhoto } = require('../middleware/uploadMiddleware');
 const { apiLimiter } = require('../middleware/apiLimiter');
 const {
   MESSAGE_MIN_LENGTH,
@@ -10,6 +11,7 @@ const {
   CONVERSATIONS_MAX_PAGE_SIZE,
   MESSAGES_MAX_PAGE_SIZE,
   CONVERSATION_ROLES,
+  MESSAGE_PHOTOS_PER_10_MIN,
   SAFE_ID_PATTERN,
 } = require('../config/messagingOptions');
 
@@ -35,6 +37,10 @@ const perUserLimiter = (windowMs, limit, error) =>
 const conversationStartLimiter = perUserLimiter(60 * 60 * 1000, 30, 'Too many new conversations');
 const messageSendLimiter = perUserLimiter(60 * 1000, 30, 'Too many messages');
 const messageReadLimiter = perUserLimiter(60 * 1000, 120, 'Too many requests');
+// Photos : envoi (fichier réencodé) plus coûteux qu'un texte ; lecture
+// plus fréquente (une requête par photo affichée).
+const photoSendLimiter = perUserLimiter(10 * 60 * 1000, MESSAGE_PHOTOS_PER_10_MIN, 'Too many photos');
+const photoReadLimiter = perUserLimiter(60 * 1000, 300, 'Too many requests');
 
 // ===== Validation =====
 
@@ -83,6 +89,18 @@ const validateMessages = [
 
 const validateMessageId = [safeId(param('messageId')), handleValidationErrors];
 
+/** Envoi d'une photo : erreurs d'upload (taille, type) en 400 sans détail. */
+const receivePhoto = (req, res, next) => {
+  uploadMessagePhoto(req, res, (error) => {
+    if (!error) return next();
+    const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+    return res.status(tooLarge ? 413 : 400).json({
+      error: tooLarge ? 'Photo too large' : 'Invalid upload',
+      code: tooLarge ? 'PHOTO_TOO_LARGE' : 'INVALID_UPLOAD',
+    });
+  });
+};
+
 // ===== Routes (connexion requise) =====
 
 // Ouvrir (ou retrouver) la discussion avec le vendeur d'une annonce.
@@ -96,6 +114,26 @@ router.post(
 
 // Envoyer un message dans une discussion.
 router.post('/', authMiddleware, messageSendLimiter, validateSend, messageController.sendMessage);
+
+// Envoyer une photo (multipart : conversationId, photo).
+router.post(
+  '/photos',
+  authMiddleware,
+  photoSendLimiter,
+  messageSendLimiter,
+  receivePhoto,
+  messageController.sendPhoto,
+);
+
+// Photo d'un message (les deux personnes de la discussion seulement),
+// avant /:conversationId.
+router.get(
+  '/photos/:messageId',
+  authMiddleware,
+  photoReadLimiter,
+  validateMessageId,
+  messageController.getPhoto,
+);
 
 // Mes discussions (onglets Achat / Vente).
 router.get(

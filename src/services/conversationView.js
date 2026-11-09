@@ -5,7 +5,10 @@
 // (photo, titre, prix, statut), l'autre personne et le dernier message.
 // Jamais d'e-mail, de téléphone ni de statut interne d'un autre compte.
 
-const { MESSAGE_PREVIEW_LENGTH, OPEN_FOR_MESSAGES_STATUSES } = require('../config/messagingOptions');
+const {
+  MESSAGE_PREVIEW_LENGTH,
+  OPEN_FOR_MESSAGES_STATUSES,
+} = require('../config/messagingOptions');
 
 /** Ordre des photos : principale d'abord (même règle que les annonces). */
 const PHOTO_ORDER = [{ position: 'asc' }, { createdAt: 'asc' }];
@@ -42,7 +45,7 @@ const CONVERSATION_SUMMARY_SELECT = {
   messages: {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: 1,
-    select: { id: true, content: true, senderId: true, createdAt: true },
+    select: { id: true, content: true, photoName: true, senderId: true, createdAt: true },
   },
 };
 
@@ -50,10 +53,16 @@ const CONVERSATION_SUMMARY_SELECT = {
 const MESSAGE_SELECT = {
   id: true,
   content: true,
+  photoName: true,
+  photoWidth: true,
+  photoHeight: true,
   senderId: true,
   createdAt: true,
   readAt: true,
 };
+
+/** Adresse (privée, connexion requise) de la photo d'un message. */
+const messagePhotoUrl = (messageId) => `/api/messages/photos/${encodeURIComponent(messageId)}`;
 
 /** Filtre Prisma : discussions dont [userId] est l'acheteur ou le vendeur. */
 const participantFilter = (userId) => ({ OR: [{ buyerId: userId }, { sellerId: userId }] });
@@ -124,7 +133,8 @@ const toConversationSummary = (conversation, userId, unreadCount = 0, block = NO
     lastMessage: last
       ? {
           id: last.id,
-          preview: preview(last.content),
+          preview: last.photoName ? '' : preview(last.content),
+          hasPhoto: Boolean(last.photoName),
           isMine: last.senderId === userId,
           createdAt: last.createdAt,
         }
@@ -134,10 +144,21 @@ const toConversationSummary = (conversation, userId, unreadCount = 0, block = NO
   };
 };
 
-/** Message vu par [userId]. */
+/**
+ * Message vu par [userId]. Photo : `content` vide et `photo` avec son
+ * adresse privée et ses dimensions (place réservée avant le chargement).
+ * Le nom du fichier n'est jamais envoyé.
+ */
 const toMessage = (message, userId) => ({
   id: message.id,
-  content: message.content,
+  content: message.photoName ? '' : message.content,
+  photo: message.photoName
+    ? {
+        url: messagePhotoUrl(message.id),
+        width: message.photoWidth ?? null,
+        height: message.photoHeight ?? null,
+      }
+    : null,
   senderId: message.senderId,
   isMine: message.senderId === userId,
   createdAt: message.createdAt,
@@ -147,6 +168,7 @@ const toMessage = (message, userId) => ({
 module.exports = {
   CONVERSATION_SUMMARY_SELECT,
   MESSAGE_SELECT,
+  messagePhotoUrl,
   participantFilter,
   isParticipant,
   isOpenForMessages,

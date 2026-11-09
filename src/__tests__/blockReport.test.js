@@ -177,6 +177,21 @@ describe('Signaler une personne', () => {
     expect(mockPrisma.conversation.findUnique.mock.calls[0][0].select.messages.take).toBe(REPORT_MESSAGES_COPIED);
   });
 
+  test('photo dans la discussion : signalée comme telle, sans le nom du fichier', async () => {
+    const conversation = conversationBetween('alice', 'bob', 1);
+    conversation.messages[0] = { ...conversation.messages[0], content: '', photoName: 'secret-name.jpg' };
+    mockPrisma.user.findUnique.mockResolvedValue(person('bob'));
+    mockPrisma.conversation.findUnique.mockResolvedValue(conversation);
+    mockPrisma.userReport.create.mockResolvedValue({});
+
+    const res = await report('alice', 'bob', { reason: 'OFFENSIVE', conversationId: 'c1' });
+
+    expect(res.status).toBe(201);
+    const { data } = mockPrisma.userReport.create.mock.calls[0][0];
+    expect(data.messages).toEqual([expect.objectContaining({ content: '', hasPhoto: true, fromReported: true })]);
+    expect(JSON.stringify(data.messages)).not.toContain('secret-name');
+  });
+
   test('sans discussion : aucun message copié', async () => {
     mockPrisma.user.findUnique.mockResolvedValue(person('bob'));
     mockPrisma.userReport.create.mockResolvedValue({});

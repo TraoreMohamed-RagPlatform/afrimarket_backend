@@ -117,6 +117,7 @@ describe('Message envoyé dans une conversation', () => {
       messageId: 'm1',
       senderId: 'alice',
       content: 'Toujours disponible ?',
+      hasPhoto: false,
       createdAt: new Date('2026-10-21T10:00:00Z'),
     });
   });
